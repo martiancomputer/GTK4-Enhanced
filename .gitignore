@@ -1,0 +1,19 @@
+/subprojects/*/
+.flatpak-builder/
+.vscode/
+# Keep upstream dependency recipes; only downloaded subprojects are ignored.
+
+# Local experiment artifacts, never source or public build provenance.
+/_build*/
+/_stage/
+/_bootstrap/
+/_baseline/
+/local-notes/
+/scratch/
+*.perf.data
+*.perf.data.old
+*.trace
+.env
+.env.*
+*.pem
+*.key
