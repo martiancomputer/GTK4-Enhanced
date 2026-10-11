@@ -162,7 +162,7 @@ meson test -C _build --print-errorlogs
 Never install a development fork globally as part of normal verification. Use an isolated prefix and make consumer resolution explicit via `PKG_CONFIG_PATH` and platform library paths. Check the executable's actual loaded libraries; seeing the fork in a submodule directory is **not** proof that it was linked or loaded.
 
 For SpotifyGTK integration:
-- This repository is the GTK4 source. **SpotifyGTK owns the `third_party/gtk4-enhanced` submodule pointer** and must update it separately; do not commit changes to the parent repository from inside the fork unless requested.
+- This repository is the GTK4 source. **SpotifyGTK owns the `dependencies/gtk4-enhanced` submodule pointer** and must update it separately; do not commit changes to the parent repository from inside the fork unless requested.
 - Build GTK4-Enhanced first into an isolated staging prefix; configure the consumer against that prefix, then bundle exactly those runtime libraries and dependent modules.
 - MSYS2/UCRT64 builds and MSIX packages must not accidentally substitute system GTK DLLs for the fork. Check DLL origins, export compatibility, and runtime dependency closure. Beware stale artifacts and `cp -n`/no-clobber copy behavior.
 - Never overwrite globally installed GTK, GLib, GDK, GSK, or libadwaita libraries to make a test pass.
