@@ -69,14 +69,14 @@ G_BEGIN_DECLS
 /**
  * GTK_ALIGN_BASELINE_FILL:
  *
- * a different name for `GTK_ALIGN_BASELINE`.
+ * stretch to fill all space, but align the baseline.
  *
  * Since: 4.12
  */
 /**
  * GTK_ALIGN_BASELINE_CENTER:
  *
- * stretch to fill all space, but align the baseline.
+ * align the baseline.
  *
  * Since: 4.12
  */
@@ -678,6 +678,7 @@ typedef enum {
  * that only exists when parsing the source for introspection.
  */
 #ifdef __GI_SCANNER__
+GDK_AVAILABLE_IN_ALL
 GtkOrdering     gtk_ordering_from_cmpfunc       (int cmpfunc_result);
 #else
 /**

@@ -84,12 +84,21 @@ struct _GtkWindowClass
    */
   gboolean (* close_request)    (GtkWindow *window);
 
+  /**
+   * GtkWindowClass::force_close:
+   *
+   * Class handler for the [signal@Window::force-close] signal.
+   *
+   * Since: 4.24
+   */
+  void     (* force_close)    (GtkWindow *window);
+
   /*< private >*/
-  gpointer padding[8];
+  gpointer padding[7];
 };
 
 GDK_AVAILABLE_IN_ALL
-GType      gtk_window_get_type                 (void) G_GNUC_CONST;
+GType      gtk_window_get_type                 (void);
 GDK_AVAILABLE_IN_ALL
 GtkWidget* gtk_window_new                      (void);
 GDK_AVAILABLE_IN_ALL

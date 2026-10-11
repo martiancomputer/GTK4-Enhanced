@@ -37,13 +37,14 @@
 #include "gdkdisplayprivate.h"
 #include "gdkdragsurfaceprivate.h"
 #include "gdkframeclockidleprivate.h"
+#include "gdkframetimingsprivate.h"
 #include "gdkmonitorprivate.h"
 #include "gdkpopupprivate.h"
 #include "gdkseatprivate.h"
 #include "gdksurfaceprivate.h"
 #include "gdktoplevelprivate.h"
 #include "gdkwin32surface.h"
-#include "gdkwin32cursor.h"
+#include "gdkwin32cursorprivate.h"
 #include "gdkinput-dmanipulation.h"
 #include "gdkinput-winpointer.h"
 #include "gdkglcontext-win32.h"
@@ -65,7 +66,7 @@ static void gdk_win32_surface_set_transient_for (GdkSurface *surface,
 static void gdk_win32_push_modal_surface        (GdkSurface *surface);
 static void gdk_win32_remove_modal_surface      (GdkSurface *surface);
 static void gdk_win32_impl_frame_clock_after_paint (GdkFrameClock *clock,
-                                                    GdkSurface    *surface);
+                                                    gpointer       unused);
 
 static void gdk_win32_surface_maximize (GdkSurface *surface);
 static void gdk_win32_surface_unmaximize (GdkSurface *surface);
@@ -154,35 +155,31 @@ gdk_surface_win32_finalize (GObject *object)
 
 static void
 gdk_win32_impl_frame_clock_after_paint (GdkFrameClock *clock,
-                                        GdkSurface    *surface)
+                                        gpointer       unused)
 {
   DWM_TIMING_INFO timing_info;
   LARGE_INTEGER tick_frequency;
-  GdkFrameTimings *timings;
 
-  timings = gdk_frame_clock_get_timings (clock, gdk_frame_clock_get_frame_counter (clock));
-
-  if (timings)
+  if (QueryPerformanceFrequency (&tick_frequency))
     {
-      timings->refresh_interval = 16667; /* default to 1/60th of a second */
-      timings->presentation_time = 0;
+      HRESULT hr;
 
-      if (QueryPerformanceFrequency (&tick_frequency))
+      timing_info.cbSize = sizeof (timing_info);
+      hr = DwmGetCompositionTimingInfo (NULL, &timing_info);
+
+      if (SUCCEEDED (hr))
         {
-          HRESULT hr;
-
-          timing_info.cbSize = sizeof (timing_info);
-          hr = DwmGetCompositionTimingInfo (NULL, &timing_info);
-
-          if (SUCCEEDED (hr))
-            {
-              timings->refresh_interval = timing_info.qpcRefreshPeriod * (double)G_USEC_PER_SEC / tick_frequency.QuadPart;
-              timings->presentation_time = timing_info.qpcCompose * (double)G_USEC_PER_SEC / tick_frequency.QuadPart;
-            }
+          gdk_frame_clock_presented (clock,
+                                     gdk_frame_clock_get_frame_counter (clock),
+                                     timing_info.qpcCompose * (double) G_NSEC_PER_SEC / tick_frequency.QuadPart,
+                                     timing_info.qpcRefreshPeriod * (double) G_NSEC_PER_SEC / tick_frequency.QuadPart);
+          return;
         }
-
-      timings->complete = TRUE;
     }
+
+  gdk_frame_clock_submitted (clock,
+                             gdk_frame_clock_get_frame_counter (clock),
+                             0);
 }
 
 void
@@ -353,6 +350,21 @@ RegisterGdkClass (GType wtype)
   return klass;
 }
 
+static GdkFrameClock *
+gdk_win32_surface_create_frame_clock (void)
+{
+  GdkFrameClock *frame_clock;
+
+  frame_clock = _gdk_frame_clock_idle_new ();
+
+  g_signal_connect (frame_clock,
+                    "after-paint",
+                    G_CALLBACK (gdk_win32_impl_frame_clock_after_paint),
+                    NULL);
+
+  return frame_clock;
+}
+
 static void
 gdk_win32_surface_constructed (GObject *object)
 {
@@ -379,17 +391,17 @@ gdk_win32_surface_constructed (GObject *object)
 
   if (gdk_win32_display_get_dcomp_device (display_win32))
     dwExStyle |= WS_EX_NOREDIRECTIONBITMAP;
-  
+
   if (G_OBJECT_TYPE (impl) == GDK_TYPE_WIN32_TOPLEVEL)
     {
       dwStyle |= WS_OVERLAPPEDWINDOW;
-      frame_clock = _gdk_frame_clock_idle_new ();
+      frame_clock = gdk_win32_surface_create_frame_clock ();
     }
   else if (G_OBJECT_TYPE (impl) == GDK_TYPE_WIN32_DRAG_SURFACE)
     {
       dwExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
       dwStyle |= WS_POPUP;
-      frame_clock = _gdk_frame_clock_idle_new ();
+      frame_clock = gdk_win32_surface_create_frame_clock ();
     }
   else if (G_OBJECT_TYPE (impl) == GDK_TYPE_WIN32_POPUP)
     {
@@ -472,11 +484,6 @@ gdk_win32_surface_constructed (GObject *object)
   _gdk_win32_surface_register_dnd (surface);
   _gdk_win32_surface_update_style_bits (surface);
 
-  g_signal_connect (frame_clock,
-                    "after-paint",
-                    G_CALLBACK (gdk_win32_impl_frame_clock_after_paint),
-                    impl);
-
   impl->inhibit_configure = TRUE;
 
   G_OBJECT_CLASS (gdk_win32_surface_parent_class)->constructed (object);
@@ -496,9 +503,6 @@ gdk_win32_surface_destroy (GdkSurface *surface,
   /* Remove ourself from the modal stack */
   gdk_win32_remove_modal_surface (surface);
 
-  g_signal_handlers_disconnect_by_func (gdk_surface_get_frame_clock (surface),
-                                        gdk_win32_impl_frame_clock_after_paint,
-                                        surface);
 
   /* Remove all our transient children */
   while (impl->transient_children != NULL)
@@ -779,8 +783,19 @@ gdk_win32_surface_show (GdkSurface *surface,
 static void
 gdk_win32_surface_hide (GdkSurface *surface)
 {
+  GdkWin32Surface *impl = GDK_WIN32_SURFACE (surface);
+
   if (surface->destroyed)
     return;
+
+  if (surface->autohide && impl->popup_grab)
+    {
+      GdkSeat *seat;
+
+      seat = gdk_display_get_default_seat (surface->display);
+      gdk_seat_ungrab (seat, surface);
+      impl->popup_grab = FALSE;
+    }
 
   GDK_NOTE (MISC, g_print ("gdk_win32_surface_hide: %p: %s\n",
 			   GDK_SURFACE_HWND (surface),
@@ -788,8 +803,6 @@ gdk_win32_surface_hide (GdkSurface *surface)
 
   if (GDK_SURFACE_IS_MAPPED (surface))
     gdk_surface_set_is_mapped (surface, FALSE);
-
-  _gdk_surface_clear_update_area (surface);
 
   GtkShowSurfaceHWND (surface, SW_HIDE);
 }
@@ -1020,6 +1033,7 @@ gdk_win32_surface_layout_popup (GdkSurface     *surface,
                                    monitor,
                                    &bounds,
                                    layout,
+                                   GDK_SURFACE_LAYOUT_POPUP_HELPER_DEFAULT,
                                    &final_rect);
 
   gdk_surface_get_origin (surface->parent, &x, &y);
@@ -1061,37 +1075,25 @@ show_popup (GdkSurface *surface)
   gdk_surface_invalidate_rect (surface, NULL);
 }
 
-static void
-show_grabbing_popup (GdkSeat    *seat,
-                     GdkSurface *surface,
-                     gpointer    user_data)
-{
-  show_popup (surface);
-}
-
 static gboolean
 gdk_win32_surface_present_popup (GdkSurface     *surface,
                                  int             width,
                                  int             height,
                                  GdkPopupLayout *layout)
 {
+  GdkWin32Surface *impl = GDK_WIN32_SURFACE (surface);
+
   gdk_win32_surface_layout_popup (surface, width, height, layout);
 
   if (GDK_SURFACE_IS_MAPPED (surface))
     return TRUE;
 
+  show_popup (surface);
+
   if (surface->autohide)
     {
-      gdk_seat_grab (gdk_display_get_default_seat (surface->display),
-                     surface,
-                     GDK_SEAT_CAPABILITY_ALL,
-                     TRUE,
-                     NULL, NULL,
-                     show_grabbing_popup, NULL);
-    }
-  else
-    {
-      show_popup (surface);
+      gdk_seat_grab (gdk_display_get_default_seat (surface->display), surface);
+      impl->popup_grab = TRUE;
     }
 
   return GDK_SURFACE_IS_MAPPED (surface);
@@ -1109,7 +1111,7 @@ gdk_win32_surface_raise (GdkSurface *surface)
         API_CALL (SetWindowPos, (GDK_SURFACE_HWND (surface), HWND_TOPMOST,
 	                         0, 0, 0, 0,
 				 SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER));
-         
+
       else if (GDK_IS_POPUP (surface))
         ShowWindow (GDK_SURFACE_HWND (surface), SW_SHOWNOACTIVATE);
       else
@@ -1749,6 +1751,26 @@ get_cursor_name_from_op (GdkW32WindowDragOp op,
 }
 
 static void
+update_cursor_for_drag_move_resize (GdkSurface *surface,
+                                    GdkCursor  *cursor)
+{
+  GdkWin32HCursor *win32_hcursor = NULL;
+  GdkWin32Display *display = GDK_WIN32_DISPLAY (gdk_surface_get_display (surface));
+
+  if (cursor != NULL)
+    win32_hcursor = _gdk_win32_display_get_win32hcursor_with_scale (display,
+                                                                    cursor,
+                                                                    gdk_surface_get_scale (surface));
+
+  g_set_object (&display->grab_cursor, win32_hcursor);
+
+  if (display->grab_cursor != NULL)
+    SetCursor (gdk_win32_hcursor_get_handle (display->grab_cursor));
+  else
+    SetCursor (LoadCursor (NULL, IDC_ARROW));
+}
+
+static void
 setup_drag_move_resize_context (GdkSurface                  *surface,
                                 GdkW32DragMoveResizeContext *context,
                                 GdkW32WindowDragOp           op,
@@ -1920,11 +1942,7 @@ setup_drag_move_resize_context (GdkSurface                  *surface,
    * our op before it even begins, but only if context->op is not NONE.
    * This is why we first do the grab, *then* set the op.
    */
-  gdk_device_grab (device, pointer_surface,
-                   FALSE,
-                   GDK_ALL_EVENTS_MASK,
-                   context->cursor,
-                   timestamp);
+  SetCapture (GDK_SURFACE_HWND (surface));
 
   context->surface = g_object_ref (surface);
   context->op = op;
@@ -1937,6 +1955,8 @@ setup_drag_move_resize_context (GdkSurface                  *surface,
   context->current_root_y = root_y;
   context->timestamp = timestamp;
   context->start_rect = rect;
+
+  update_cursor_for_drag_move_resize (surface, context->cursor);
 
   GDK_NOTE (EVENTS,
             g_print ("begin drag moveresize: surface %p, toplevel %p, "
@@ -1956,7 +1976,8 @@ gdk_win32_surface_end_move_resize_drag (GdkSurface *surface)
 
   context->op = GDK_WIN32_DRAGOP_NONE;
 
-  gdk_device_ungrab (context->device, GDK_CURRENT_TIME);
+  update_cursor_for_drag_move_resize (surface, NULL);
+  ReleaseCapture ();
 
   g_clear_object (&context->cursor);
 
@@ -3377,7 +3398,6 @@ gdk_win32_toplevel_inhibit_system_shortcuts (GdkToplevel *toplevel,
 {
   GdkSurface *surface = GDK_SURFACE (toplevel);
   GdkSeat *gdk_seat;
-  GdkGrabStatus status;
 
   if (surface->shortcuts_inhibited)
     return; /* Already inhibited */
@@ -3390,16 +3410,11 @@ gdk_win32_toplevel_inhibit_system_shortcuts (GdkToplevel *toplevel,
   if (!(gdk_seat_get_capabilities (gdk_seat) & GDK_SEAT_CAPABILITY_KEYBOARD))
     return;
 
-  status = gdk_seat_grab (gdk_seat, surface, GDK_SEAT_CAPABILITY_KEYBOARD,
-                          TRUE, NULL, gdk_event, NULL, NULL);
-
-  if (status != GDK_GRAB_SUCCESS)
-    return;
-
   // TODO: install a WH_KEYBOARD_LL hook to take alt-tab/win etc.
 
   surface->shortcuts_inhibited = TRUE;
   surface->current_shortcuts_inhibited_seat = gdk_seat;
+  /* gobject-linter-ignore-next-line: use_g_object_notify_by_pspec */
   g_object_notify (G_OBJECT (toplevel), "shortcuts-inhibited");
 }
 
@@ -3407,16 +3422,14 @@ static void
 gdk_win32_toplevel_restore_system_shortcuts (GdkToplevel *toplevel)
 {
   GdkSurface *surface = GDK_SURFACE (toplevel);
-  GdkSeat *gdk_seat;
 
   if (!surface->shortcuts_inhibited)
     return; /* Not inhibited */
 
-  gdk_seat = surface->current_shortcuts_inhibited_seat;
-  gdk_seat_ungrab (gdk_seat);
   surface->current_shortcuts_inhibited_seat = NULL;
 
   surface->shortcuts_inhibited = FALSE;
+  /* gobject-linter-ignore-next-line: use_g_object_notify_by_pspec */
   g_object_notify (G_OBJECT (toplevel), "shortcuts-inhibited");
 }
 
@@ -3476,7 +3489,7 @@ gdk_win32_drag_surface_present (GdkDragSurface *drag_surface,
 {
   GdkSurface *surface = GDK_SURFACE (drag_surface);
 
-  gdk_win32_surface_resize (surface, width, height);  
+  gdk_win32_surface_resize (surface, width, height);
   gdk_win32_surface_show (surface, FALSE);
   maybe_notify_mapped (surface);
 
@@ -3493,19 +3506,19 @@ gdk_win32_drag_surface_iface_init (GdkDragSurfaceInterface *iface)
  * gdk_win32_surface_set_dcomp_content:
  * @self: The surface to set the content on
  * @dcomp_content: (nullable): The content to set.
- * 
+ *
  * Sets the content to be displayed in the surface.
- * 
+ *
  * This function should be called by draw contexts when they are created
  * or destroyed.
  * They set up their preferred method of rendering and then set it using
  * this function. The dcomp_content must be valid content for the
  * [IDCompositionVisual::SetContent()](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-setcontent)
  * function.
- * 
+ *
  * The content should be set to NULL again when the draw context gets
  * destroyed.
- * 
+ *
  * This function may not be called when Direct Composition is not in use.
  * See gdk_win32_display_get_dcomp_device() for details.
  */

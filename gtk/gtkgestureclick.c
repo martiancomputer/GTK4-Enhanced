@@ -70,11 +70,7 @@ gtk_gesture_click_finalize (GObject *object)
   gesture = GTK_GESTURE_CLICK (object);
   priv = gtk_gesture_click_get_instance_private (gesture);
 
-  if (priv->double_click_timeout_id)
-    {
-      g_source_remove (priv->double_click_timeout_id);
-      priv->double_click_timeout_id = 0;
-    }
+  g_clear_handle_id (&priv->double_click_timeout_id, g_source_remove);
 
   G_OBJECT_CLASS (gtk_gesture_click_parent_class)->finalize (object);
 }
@@ -114,7 +110,7 @@ _gtk_gesture_click_stop (GtkGestureClick *gesture)
   _gtk_gesture_check (GTK_GESTURE (gesture));
 }
 
-static gboolean
+static void
 _double_click_timeout_cb (gpointer user_data)
 {
   GtkGestureClick *gesture = user_data;
@@ -123,8 +119,6 @@ _double_click_timeout_cb (gpointer user_data)
   priv = gtk_gesture_click_get_instance_private (gesture);
   priv->double_click_timeout_id = 0;
   _gtk_gesture_click_stop (gesture);
-
-  return FALSE;
 }
 
 static void
@@ -144,7 +138,7 @@ _gtk_gesture_click_update_timeout (GtkGestureClick *gesture)
   settings = gtk_widget_get_settings (widget);
   g_object_get (settings, "gtk-double-click-time", &double_click_time, NULL);
 
-  priv->double_click_timeout_id = g_timeout_add (double_click_time, _double_click_timeout_cb, gesture);
+  priv->double_click_timeout_id = g_timeout_add_once (double_click_time, _double_click_timeout_cb, gesture);
   gdk_source_set_static_name_by_id (priv->double_click_timeout_id, "[gtk] _double_click_timeout_cb");
 }
 

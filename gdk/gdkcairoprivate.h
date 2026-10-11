@@ -10,6 +10,7 @@
 
 #include <cairo.h>
 #include <graphene.h>
+#include <math.h>
 
 static inline cairo_format_t
 gdk_cairo_format_for_depth (GdkMemoryDepth depth)
@@ -20,7 +21,6 @@ gdk_cairo_format_for_depth (GdkMemoryDepth depth)
       case GDK_MEMORY_U8:
         return CAIRO_FORMAT_ARGB32;
 
-      case GDK_MEMORY_U8_SRGB:
       case GDK_MEMORY_FLOAT16:
       case GDK_MEMORY_FLOAT32:
         return CAIRO_FORMAT_RGBA128F;
@@ -31,63 +31,15 @@ gdk_cairo_format_for_depth (GdkMemoryDepth depth)
     }
 }
 
-static inline GdkMemoryDepth
-gdk_cairo_depth_for_format (cairo_format_t format)
-{
-  switch (format)
-  {
-    case CAIRO_FORMAT_ARGB32:
-    case CAIRO_FORMAT_RGB24:
-    case CAIRO_FORMAT_RGB16_565:
-    case CAIRO_FORMAT_A1:
-    case CAIRO_FORMAT_A8:
-      return GDK_MEMORY_U8;
-
-    case CAIRO_FORMAT_RGB30:
-      return GDK_MEMORY_FLOAT16;
-
-    case CAIRO_FORMAT_RGB96F:
-    case CAIRO_FORMAT_RGBA128F:
-      return GDK_MEMORY_FLOAT32;
-
-    case CAIRO_FORMAT_INVALID:
-    default:
-      g_assert_not_reached ();
-      return GDK_MEMORY_NONE;
-  }
-}
-
-static GdkMemoryFormat
+static inline GdkMemoryFormat
 gdk_cairo_format_to_memory_format (cairo_format_t format)
 {
-  switch (format)
-  {
-    case CAIRO_FORMAT_ARGB32:
-      return GDK_MEMORY_DEFAULT;
+  GdkMemoryFormat result;
 
-    case CAIRO_FORMAT_RGB24:
-#if G_BYTE_ORDER == G_LITTLE_ENDIAN
-      return GDK_MEMORY_B8G8R8X8;
-#elif G_BYTE_ORDER == G_BIG_ENDIAN
-      return GDK_MEMORY_X8R8G8B8;
-#else
-#error "Unknown byte order for Cairo format"
-#endif
-    case CAIRO_FORMAT_A8:
-      return GDK_MEMORY_A8;
-    case CAIRO_FORMAT_RGB96F:
-      return GDK_MEMORY_R32G32B32_FLOAT;
-    case CAIRO_FORMAT_RGBA128F:
-      return GDK_MEMORY_R32G32B32A32_FLOAT_PREMULTIPLIED;
+  if (!gdk_memory_format_find_by_cairo_format (format, &result))
+    result = GDK_MEMORY_DEFAULT;
 
-    case CAIRO_FORMAT_RGB16_565:
-    case CAIRO_FORMAT_RGB30:
-    case CAIRO_FORMAT_INVALID:
-    case CAIRO_FORMAT_A1:
-    default:
-      g_assert_not_reached ();
-      return GDK_MEMORY_DEFAULT;
-  }
+  return result;
 }
 
 static inline cairo_format_t
@@ -371,5 +323,73 @@ gdk_cairo_region_union_affine (cairo_region_t       *region,
       gdk_rectangle_transform_affine (&rect, scale_x, scale_y, offset_x, offset_y, &rect);
       cairo_region_union_rectangle (region, &rect);
     }
+}
+
+/*
+ * gdk_cairo_region_is_rectangle:
+ * @region: a cairo region
+ *
+ * Checks if the region can be represented by a rectangle.
+ * 
+ * This rectangle can be queried with cairo_region_get_extents().
+ *
+ * FIXME: Should this return TRUE or FALSE for an empty region?
+ * Currently I have no use case, so it returns whatever.
+ *
+ * Returns: true if the region is a rectangle.
+ **/
+static inline gboolean
+gdk_cairo_region_is_rectangle (cairo_region_t *region)
+{
+  return cairo_region_num_rectangles (region) == 1;
+}
+
+/*
+ * gdk_cairo_color_component_to_u8:
+ * @v: a color component, nominally in [0, 1]
+ *
+ * Converts a color component to the 8 bit value cairo wants.
+ *
+ * Shaders divide by zero and input textures contain junk, so infinities and
+ * NaN do turn up here. Infinities clamp to the ends of the range, and NaN
+ * becomes 0: comparisons against NaN are all false, so it takes the same
+ * branch as a negative value. Clamping before the conversion also means the
+ * conversion never sees a value that a guint32 cannot represent.
+ *
+ * Returns: @v as a value in [0, 255]
+ */
+static inline guint32
+gdk_cairo_color_component_to_u8 (float v)
+{
+  float f = roundf (v * 255.f);
+
+  return f > 0.f ? (f < 255.f ? (guint32) f : 255) : 0;
+}
+
+/*
+ * gdk_cairo_pixel_from_float:
+ * @rgba: premultiplied color components, in the order red, green, blue, alpha
+ *
+ * Packs premultiplied float color components into the pixel format used by
+ * cairo's ARGB32 surfaces.
+ *
+ * Returns: the packed pixel
+ */
+static inline guint32
+gdk_cairo_pixel_from_float (const float rgba[4])
+{
+  return gdk_cairo_color_component_to_u8 (rgba[3]) << 24 |
+         gdk_cairo_color_component_to_u8 (rgba[0]) << 16 |
+         gdk_cairo_color_component_to_u8 (rgba[1]) << 8 |
+         gdk_cairo_color_component_to_u8 (rgba[2]) << 0;
+}
+
+static inline void
+gdk_cairo_surface_get_device_matrix (cairo_surface_t *surface,
+                                     cairo_matrix_t  *matrix)
+{
+  cairo_surface_get_device_scale (surface, &matrix->xx, &matrix->yy);
+  cairo_surface_get_device_offset (surface, &matrix->x0, &matrix->y0);
+  matrix->yx = matrix->xy = 0;
 }
 

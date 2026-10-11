@@ -176,7 +176,18 @@ _gdk_macos_pasteboard_read_async (GObject             *object,
     }
   else if (strcmp (mime_type, "text/uri-list") == 0)
     {
-      if ([[pasteboard types] containsObject:NSPasteboardTypeFileURL])
+      if ([[pasteboard types] containsObject:NSPasteboardTypeURL])
+        {
+          NSURL *url = [NSURL URLFromPasteboard:pasteboard];
+          if (url != NULL)
+            {
+              NSString *urlString = [url absoluteString];
+              const char *str = [urlString UTF8String];
+              char *data = g_strdup_printf ("%s\r\n", str);
+              stream = g_memory_input_stream_new_from_data (data, strlen (data), g_free);
+            }
+        }
+      else if ([[pasteboard types] containsObject:NSPasteboardTypeFileURL])
         {
           GString *str = g_string_new (NULL);
           G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
@@ -188,9 +199,9 @@ _gdk_macos_pasteboard_read_async (GObject             *object,
 
           for (gsize i = 0; i < n_files; ++i)
             {
-              NSString* uriString = [files objectAtIndex:i];
-              uriString = [@"file://" stringByAppendingString:uriString];
-              uriString = [uriString stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+              NSString *path = [files objectAtIndex:i];
+              NSURL *url = [NSURL fileURLWithPath:path];
+              NSString *uriString = [url absoluteString];
 
               g_string_append_printf (str,
                                       "%s\r\n",
@@ -365,14 +376,12 @@ typedef struct
   GMemoryOutputStream *stream;
   NSPasteboardItem    *item;
   NSPasteboardType     type;
-  GMainContext        *main_context;
   guint                done : 1;
 } WriteRequest;
 
 static void
 write_request_free (WriteRequest *wr)
 {
-  g_clear_pointer (&wr->main_context, g_main_context_unref);
   g_clear_object (&wr->stream);
   [wr->item release];
   g_free (wr);
@@ -452,7 +461,7 @@ on_data_ready_cb (GObject      *object,
 -(void)pasteboard:(NSPasteboard *)pasteboard item:(NSPasteboardItem *)item provideDataForType:(NSPasteboardType)type
 {
   const char *mime_type = _gdk_macos_pasteboard_from_ns_type (type);
-  GMainContext *main_context = g_main_context_default ();
+  GMainContext *main_context;
   WriteRequest *wr;
 
   if (self->_contentProvider == NULL || mime_type == NULL)
@@ -461,11 +470,16 @@ on_data_ready_cb (GObject      *object,
       return;
     }
 
+  if (!GDK_IS_CLIPBOARD (self->_clipboard) && !GDK_IS_DRAG (self->_drag))
+    return;
+
+  main_context = g_main_context_new ();
+  g_main_context_push_thread_default (main_context);
+
   wr = g_new0 (WriteRequest, 1);
   wr->item = [item retain];
   wr->stream = G_MEMORY_OUTPUT_STREAM (g_memory_output_stream_new_resizable ());
   wr->type = type;
-  wr->main_context = g_main_context_ref (main_context);
   wr->done = FALSE;
 
   if (GDK_IS_CLIPBOARD (self->_clipboard))
@@ -487,15 +501,17 @@ on_data_ready_cb (GObject      *object,
   else
     g_return_if_reached ();
 
-  /* We're forced to provide data synchronously via this API
-   * so we must block on the main loop. Using another main loop
-   * than the default tends to get us locked up here, so that is
-   * what we'll do for now.
-   */
   while (!wr->done)
-    g_main_context_iteration (wr->main_context, TRUE);
+    g_main_context_iteration (main_context, TRUE);
+
+  /* Run any remaining idles */
+  while (g_main_context_iteration (main_context, FALSE))
+    ;
 
   write_request_free (wr);
+
+  g_main_context_pop_thread_default (main_context);
+  g_main_context_unref (main_context);
 }
 
 -(void)pasteboardFinishedWithDataProvider:(NSPasteboard *)pasteboard

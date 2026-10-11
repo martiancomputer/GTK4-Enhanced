@@ -109,28 +109,24 @@ static void gtk_demo_class_init (GtkDemoClass *klass)
 
   properties[PROP_FILENAME] =
     g_param_spec_string ("filename",
-                         "filename",
-                         "filename",
+                         NULL, NULL,
                          NULL,
-                         G_PARAM_READABLE);
+                         G_PARAM_READABLE | G_PARAM_STATIC_NAME);
   properties[PROP_NAME] =
     g_param_spec_string ("name",
-                         "name",
-                         "name",
+                         NULL, NULL,
                          NULL,
-                         G_PARAM_READABLE);
+                         G_PARAM_READABLE | G_PARAM_STATIC_NAME);
   properties[PROP_TITLE] =
     g_param_spec_string ("title",
-                         "title",
-                         "title",
+                         NULL, NULL,
                          NULL,
-                         G_PARAM_READABLE);
+                         G_PARAM_READABLE | G_PARAM_STATIC_NAME);
   properties[PROP_KEYWORDS] =
     g_param_spec_string ("keywords",
-                         "keywords",
-                         "keywords",
+                         NULL, NULL,
                          NULL,
-                         G_PARAM_READABLE);
+                         G_PARAM_READABLE | G_PARAM_STATIC_NAME);
 
   g_object_class_install_properties (gobject_class, N_PROPS, properties);
 }
@@ -514,7 +510,7 @@ load_file (const char *demoname,
   GBytes *bytes;
   int i;
 
-  if (!g_strcmp0 (current_file, filename))
+  if (g_strcmp0 (current_file, filename) == 0)
     return;
 
   remove_data_tabs ();
@@ -813,12 +809,12 @@ static void
 demo_search_changed_cb (GtkSearchEntry *entry,
                         GtkFilter      *filter)
 {
-  const char *text;
+  char *text;
 
   g_assert (GTK_IS_SEARCH_ENTRY (entry));
   g_assert (GTK_IS_FILTER (filter));
 
-  text = gtk_editable_get_text (GTK_EDITABLE (entry));
+  text = gtk_editable_get_complete_text (GTK_EDITABLE (entry));
 
   g_clear_pointer (&search_needle, g_strfreev);
 
@@ -826,6 +822,7 @@ demo_search_changed_cb (GtkSearchEntry *entry,
     search_needle = g_str_tokenize_and_fold (text, NULL, NULL);
 
   gtk_filter_changed (filter, GTK_FILTER_CHANGE_DIFFERENT);
+  g_free (text);
 }
 
 static gboolean
@@ -1028,11 +1025,10 @@ activate (GApplication *gapp)
   gtk_window_present (window);
 }
 
-static gboolean
+static void
 auto_quit (gpointer data)
 {
   g_application_quit (G_APPLICATION (data));
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -1075,7 +1071,7 @@ command_line (GApplication            *app,
   g_variant_dict_lookup (options, "list", "b", &list);
 
   if (autoquit)
-    g_timeout_add_seconds (1, auto_quit, app);
+    g_timeout_add_seconds_once (1, auto_quit, app);
 
   if (!name && !list)
     {

@@ -15,7 +15,7 @@ GTK4-Enhanced is a **compatibility-preserving, extensible fork of GTK 4**. Its f
 Upstream locations:
 - Canonical: https://gitlab.gnome.org/GNOME/gtk
 - Read-only GitHub mirror: https://github.com/GNOME/gtk
-- Stable baseline for this fork: **GTK 4.22.4** (tag `4.22.4`), maintained against the `gtk-4-22` series unless the maintainer approves an upgrade.
+- Stable baseline for this fork: **GTK 4.24.1** (tag `4.24.1`), maintained against the `gtk-4-24` series unless the maintainer approves an upgrade.
 
 Never silently switch the baseline to upstream `main` or combine code from a development series without reviewing API, dependency, and ABI changes. Record upstream commit/tag information in every rebase or version-upgrade PR.
 
@@ -42,7 +42,7 @@ The default deliverable is a **drop-in compatible GTK4 build**, not a parallel t
 - GTK/GDK/GSK public header contracts, GIR/typelib namespace identities, plugin/module expectations, and the existing `gtk4` pkg-config dependency interface.
 - Upstream shared-library identity and ABI/SONAME/DLL naming for a compatible build. An enhanced binary must not claim compatibility unless verified.
 - Existing event semantics, frame-clock phase ordering, input behavior, accessibility, localization, styling/CSS, clipboard, text rendering, DPI scaling, and rendering fallbacks.
-- Source compatibility for applications using public GTK 4.22 APIs; builds should work with stock libadwaita and the expected GTK dependency stack.
+- Source compatibility for applications using public GTK 4.24 APIs; builds should work with stock libadwaita and the expected GTK dependency stack.
 
 **MUST NOT:**
 - Rename `libgtk-4`/GTK public symbols, fork the namespace, change public headers for an internal optimization, or expose private data layouts as new public API without approval.
@@ -115,7 +115,7 @@ This is a core product track, **not** an incidental GTK theme tweak. Implement i
 
 ## 6. Feature roadmap and sequencing
 
-**Shared prerequisite: B0 — Baseline and compatibility harness.** Pin GTK 4.22.4; establish reproducible Windows/Linux builds, ABI checks, GTK demos, performance/visual diagnostics, isolation and rollback. No later milestone can ship without passing the baseline. Once B0 is established, individual feature tracks may proceed **independently**; do not block transparency work until 360 Hz is solved, or merge unrelated tracks into one PR.
+**Shared prerequisite: B0 — Baseline and compatibility harness.** Pin GTK 4.24.1; establish reproducible Windows/Linux builds, ABI checks, GTK demos, performance/visual diagnostics, isolation and rollback. No later milestone can ship without passing the baseline. Once B0 is established, individual feature tracks may proceed **independently**; do not block transparency work until 360 Hz is solved, or merge unrelated tracks into one PR.
 
 | Track / milestone | Scope | Exit gate |
 | --- | --- | --- |
@@ -184,7 +184,7 @@ For each behavior-changing PR:
 
 ## 10. Contributions and pull requests
 
-Contributors should start from the correct `enhanced-4.22` development branch or the current documented integration branch. Use short, focused commits with descriptive messages; preserve attribution and include an upstream commit reference when backporting.
+Contributors should start from the correct `enhanced-4.24` development branch or the current documented integration branch. Use short, focused commits with descriptive messages; preserve attribution and include an upstream commit reference when backporting.
 
 A PR description **MUST** contain:
 

@@ -34,9 +34,11 @@ static const JNINativeMethod glib_context_natives[] = {
   { .name = "runOnMain", .signature = "(Ljava/lang/Runnable;)V", .fnPtr = _gdk_android_glib_context_run_on_main }
 };
 
+static void _gdk_android_gdk_context__set_latest_activity (JNIEnv *env, jclass this, jobject activity);
 static void _gdk_android_gdk_context_activate (JNIEnv *env, jclass this);
 static void _gdk_android_gdk_context_open (JNIEnv *env, jclass this, jobject uri, jstring jhint);
 static const JNINativeMethod gdk_context_natives[] = {
+  { .name = "_set_latest_activity", .signature = "(Lorg/gtk/android/ToplevelActivity;)V", .fnPtr = _gdk_android_gdk_context__set_latest_activity },
   { .name = "activate", .signature = "()V", .fnPtr = _gdk_android_gdk_context_activate },
   { .name = "open", .signature = "(Landroid/net/Uri;Ljava/lang/String;)V", .fnPtr = _gdk_android_gdk_context_open }
 };
@@ -70,6 +72,11 @@ static const JNINativeMethod toplevel_natives[] = {
 };
 
 static void
+_gdk_android_gdk_context__set_latest_activity (JNIEnv *env, jclass this, jobject activity)
+{
+  gdk_android_set_latest_activity (env, activity);
+}
+static void
 _gdk_android_gdk_context_activate (JNIEnv *env, jclass this)
 {
   g_application_activate (g_application_get_default ());
@@ -80,11 +87,33 @@ _gdk_android_gdk_context_open (JNIEnv *env, jclass this, jobject uri, jstring jh
   GApplication *app = g_application_get_default ();
   if (g_application_get_flags (app) & G_APPLICATION_HANDLES_OPEN)
     {
-      GFile *file = gdk_android_content_file_from_uri (uri);
+      (*env)->PushLocalFrame (env, 3);
+
+      GFile *file;
+      jstring scheme = (*env)->CallObjectMethod (env, uri,
+                                                 gdk_android_get_java_cache ()->a_uri.get_scheme);
+      if (scheme != NULL &&
+          (*env)->CallBooleanMethod (env, scheme,
+                                     gdk_android_get_java_cache ()->j_object.equals,
+                                     gdk_android_get_java_cache ()->a_content_resolver.scheme_content))
+        {
+          file = gdk_android_content_file_from_uri (uri);
+        }
+      else
+        {
+          jstring uri_string = (*env)->CallObjectMethod (env, uri,
+                                                         gdk_android_get_java_cache ()->j_object.to_string);
+          gchar *uri_str = gdk_android_java_to_utf8 (uri_string, NULL);
+          file = g_file_new_for_uri (uri_str);
+          g_free (uri_str);
+        }
+
       gchar *hint = gdk_android_java_to_utf8 (jhint, NULL);
       g_application_open (app, &file, 1, hint);
       g_free (hint);
       g_object_unref (file);
+
+      (*env)->PopLocalFrame (env, NULL);
     }
   else
     {
@@ -123,9 +152,9 @@ static GdkAndroidJavaCache gdk_android_java_cache;
     gdk_android_java_cache.cklass.cname = (*env)->NewGlobalRef (env, cklass##_##cname);                                                \
 }
 
-#define POPULATE_REFCACHE_CURSOR_TYPE(cname, jname, cssname) {                                                                                          \
-    POPULATE_REFCACHE_FIELD (a_pointericon, cname, jname)                                                                                               \
-    g_hash_table_insert (gdk_android_java_cache.a_pointericon.gdk_type_mapping, cssname, GINT_TO_POINTER (gdk_android_java_cache.a_pointericon.cname)); \
+#define POPULATE_REFCACHE_CURSOR_TYPE(cname, jname, cssname) {                                                                                                    \
+    POPULATE_REFCACHE_FIELD (a_pointericon, cname, jname)                                                                                                         \
+    g_hash_table_insert (gdk_android_java_cache.a_pointericon.gdk_type_mapping, (gpointer)cssname, GINT_TO_POINTER (gdk_android_java_cache.a_pointericon.cname)); \
   }
 
 jclass
@@ -269,6 +298,7 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
 
   jclass android_context = (*env)->FindClass (env, "android/content/Context");
   gdk_android_java_cache.a_context.klass = (*env)->NewGlobalRef (env, android_context);
+  POPULATE_REFCACHE_METHOD (a_context, get_color, "getColor", "(I)I")
   POPULATE_REFCACHE_METHOD (a_context, get_content_resolver, "getContentResolver", "()Landroid/content/ContentResolver;")
   POPULATE_REFCACHE_METHOD (a_context, get_system_service, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;")
   POPULATE_REFCACHE_METHOD (a_context, get_resources, "getResources", "()Landroid/content/res/Resources;")
@@ -277,6 +307,7 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
 
   jclass android_content_resolver = (*env)->FindClass (env, "android/content/ContentResolver");
   gdk_android_java_cache.a_content_resolver.klass = (*env)->NewGlobalRef (env, android_content_resolver);
+  POPULATE_REFCACHE_STRING (a_content_resolver, scheme_content, "SCHEME_CONTENT")
   POPULATE_REFCACHE_METHOD (a_content_resolver, get_type, "getType", "(Landroid/net/Uri;)Ljava/lang/String;");
   POPULATE_REFCACHE_METHOD (a_content_resolver, open_asset_fd, "openAssetFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;Landroid/os/CancellationSignal;)Landroid/content/res/AssetFileDescriptor;");
   POPULATE_REFCACHE_METHOD (a_content_resolver, open_typed_asset_fd, "openTypedAssetFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;Landroid/os/Bundle;Landroid/os/CancellationSignal;)Landroid/content/res/AssetFileDescriptor;");
@@ -342,6 +373,10 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   POPULATE_REFCACHE_FIELD (a_configuration, ui_night_undefined, "UI_MODE_NIGHT_UNDEFINED")
   POPULATE_REFCACHE_FIELD (a_configuration, ui_night_no, "UI_MODE_NIGHT_NO")
   POPULATE_REFCACHE_FIELD (a_configuration, ui_night_yes, "UI_MODE_NIGHT_YES")
+
+  jclass android_res_color = (*env)->FindClass (env, "android/R$color");
+  gdk_android_java_cache.a_res_color.klass = (*env)->NewGlobalRef (env, android_res_color);
+  POPULATE_REFCACHE_FIELD (a_res_color, system_accent1_600, "system_accent1_600")
 
   jclass android_clipboard_manager = (*env)->FindClass (env, "android/content/ClipboardManager");
   gdk_android_java_cache.a_clipboard_manager.klass = (*env)->NewGlobalRef (env, android_clipboard_manager);
@@ -653,6 +688,7 @@ gdk_android_finalize (void)
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_context.activity_service);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_context.clipboard_service);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_content_resolver.klass);
+  (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_content_resolver.scheme_content);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_asset_fd.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_asset_fd.mode_append);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_asset_fd.mode_read);
@@ -670,6 +706,7 @@ gdk_android_finalize (void)
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_cursor.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_resources.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_configuration.klass);
+  (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_res_color.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_clipboard_manager.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_clip_desc.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_clip_desc.mime_text_html);

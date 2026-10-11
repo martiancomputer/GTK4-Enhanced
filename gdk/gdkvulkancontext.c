@@ -35,6 +35,11 @@
 #include "gdkdisplayprivate.h"
 #include "gdkprofilerprivate.h"
 #include "gdkmemorytexture.h"
+
+#include "gsk/gpu/gskvulkanrenderer.h"
+#include "gsk/gskrenderer.h"
+#include "gsk/gskrendernodeprivate.h"
+
 #include <glib/gi18n-lib.h>
 #include <math.h>
 
@@ -815,7 +820,6 @@ gdk_vulkan_context_release_presents (GdkVulkanContext *self,
 static void
 gdk_vulkan_context_begin_frame (GdkDrawContext  *draw_context,
                                 gpointer         context_data,
-                                GdkMemoryDepth   depth,
                                 cairo_region_t  *region,
                                 GdkColorState  **out_color_state,
                                 GdkMemoryDepth  *out_depth)
@@ -824,6 +828,8 @@ gdk_vulkan_context_begin_frame (GdkDrawContext  *draw_context,
   GdkVulkanContextPrivate *priv = gdk_vulkan_context_get_instance_private (context);
   GdkSurface *surface = gdk_draw_context_get_surface (draw_context);
   GdkColorState *color_state;
+  GskRenderNode *content;
+  GdkMemoryDepth depth;
   VkResult acquire_result;
   VkSemaphore draw_semaphore;
   GdkVulkanPresent *present;
@@ -832,10 +838,15 @@ gdk_vulkan_context_begin_frame (GdkDrawContext  *draw_context,
   g_assert (context_data != NULL);
   draw_semaphore = *(VkSemaphore *) context_data;
 
+  content = gdk_surface_get_content (surface);
+  if (content)
+    depth = gsk_render_node_get_preferred_depth (content);
+  else
+    depth = GDK_MEMORY_U8;
+  if (GDK_DISPLAY_DEBUG_CHECK (gdk_draw_context_get_display (draw_context), HIGH_DEPTH))
+    depth = GDK_MEMORY_FLOAT32;
   color_state = gdk_surface_get_color_state (surface);
   depth = gdk_memory_depth_merge (depth, gdk_color_state_get_depth (color_state));
-
-  g_assert (depth != GDK_MEMORY_U8_SRGB || gdk_color_state_get_no_srgb_tf (color_state) != NULL);
 
   if (depth != priv->current_depth && depth != GDK_MEMORY_NONE)
     {
@@ -920,10 +931,7 @@ gdk_vulkan_context_begin_frame (GdkDrawContext  *draw_context,
 
   cairo_region_union (region, priv->regions[present->image_index]);
 
-  if (priv->current_depth == GDK_MEMORY_U8_SRGB)
-    *out_color_state = gdk_color_state_get_no_srgb_tf (color_state);
-  else
-    *out_color_state = color_state;
+  *out_color_state = color_state;
   *out_depth = priv->current_depth;
 }
 
@@ -1089,26 +1097,6 @@ gdk_vulkan_context_surface_attach (GdkDrawContext  *context,
                   {
                     priv->formats[GDK_MEMORY_U8].vk_format = formats[i];
                     priv->formats[GDK_MEMORY_U8].gdk_format = GDK_MEMORY_R8G8B8A8_PREMULTIPLIED;
-                  }
-                break;
-
-              case VK_FORMAT_B8G8R8A8_SRGB:
-                if (priv->formats[GDK_MEMORY_U8_SRGB].vk_format.format == VK_FORMAT_UNDEFINED ||
-                    (formats[i].colorSpace == VK_COLOR_SPACE_PASS_THROUGH_EXT &&
-                     priv->formats[GDK_MEMORY_U8_SRGB].vk_format.colorSpace != VK_COLOR_SPACE_PASS_THROUGH_EXT))
-                  {
-                    priv->formats[GDK_MEMORY_U8_SRGB].vk_format = formats[i];
-                    priv->formats[GDK_MEMORY_U8_SRGB].gdk_format = GDK_MEMORY_B8G8R8A8_PREMULTIPLIED;
-                  }
-                break;
-
-              case VK_FORMAT_R8G8B8A8_SRGB:
-                if (priv->formats[GDK_MEMORY_U8_SRGB].vk_format.format == VK_FORMAT_UNDEFINED ||
-                    (formats[i].colorSpace == VK_COLOR_SPACE_PASS_THROUGH_EXT &&
-                     priv->formats[GDK_MEMORY_U8_SRGB].vk_format.colorSpace != VK_COLOR_SPACE_PASS_THROUGH_EXT))
-                  {
-                    priv->formats[GDK_MEMORY_U8_SRGB].vk_format = formats[i];
-                    priv->formats[GDK_MEMORY_U8_SRGB].gdk_format = GDK_MEMORY_R8G8B8A8_PREMULTIPLIED;
                   }
                 break;
 
@@ -2142,18 +2130,6 @@ gdk_display_destroy_vulkan_instance (GdkDisplay *display)
   vkDestroyInstance (display->vk_instance, NULL);
   display->vk_instance = VK_NULL_HANDLE;
 }
-
-/* Hack. We don't include gsk/gsk.h here to avoid a build order problem
- * with the generated header gskenumtypes.h, so we need to hack around
- * a bit to access the gsk api we need.
- */
-
-typedef struct _GskRenderer GskRenderer;
-
-extern GskRenderer *   gsk_vulkan_renderer_new                  (void);
-extern gboolean        gsk_renderer_realize_for_display         (GskRenderer  *renderer,
-                                                                 GdkDisplay   *display,
-                                                                 GError      **error);
 
 #ifdef HAVE_DMABUF
 static void

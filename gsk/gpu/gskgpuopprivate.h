@@ -29,9 +29,11 @@ struct _GskGLCommandState
     GskGpuColorStates color_states;
     guint32 variation;
   } current_program;
+  GLuint fbos[2];
   GskGpuBuffer *globals;
   GskGpuImage *current_images[2];
   GskGpuSampler current_samplers[2];
+  GskGpuImage *clip_mask;
 };
 
 #ifdef GDK_RENDERING_VULKAN
@@ -40,11 +42,13 @@ struct _GskVulkanCommandState
   VkRenderPass vk_render_pass;
   VkFormat vk_format;
   VkCommandBuffer vk_command_buffer;
+  VkDescriptorSet vk_globals_descriptor_set;
   GskGpuBlend blend;
 
   GskVulkanSemaphores *semaphores;
   GskGpuImage *current_images[2];
   GskGpuSampler current_samplers[2];
+  GskGpuImage *clip_mask;
 };
 #endif
 

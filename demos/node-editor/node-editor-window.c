@@ -1196,6 +1196,7 @@ testcase_save_clicked_cb (GtkWidget        *button,
   gtk_popover_popdown (GTK_POPOVER (self->testcase_popover));
 
 out:
+  g_clear_error (&error);
   g_free (text);
   g_free (png_file);
   g_free (node_file);
@@ -1345,8 +1346,7 @@ node_editor_window_unrealize (GtkWidget *widget)
   g_signal_handlers_disconnect_by_func (gtk_widget_get_clipboard (widget), update_paste_action, widget);
 
   frameclock = gtk_widget_get_frame_clock (widget);
-  g_signal_handler_disconnect (frameclock, self->after_paint_handler);
-  self->after_paint_handler = 0;
+  g_clear_signal_handler (&self->after_paint_handler, frameclock);
 
   for (i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (self->renderers)); i ++)
     {

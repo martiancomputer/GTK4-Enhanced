@@ -8,6 +8,7 @@ gsk_private_gpu_include_shaders = files([
   'enums.glsl',
   'rect.glsl',
   'roundedrect.glsl',
+  'snap.glsl',
 ])
 
 gsk_private_gpu_shaders = files([
@@ -32,6 +33,7 @@ gsk_private_gpu_shaders = files([
   'gskgpuradialgradient.glsl',
   'gskgpuroundedcolor.glsl',
   'gskgputexture.glsl',
+  'gskgputurbulence.glsl',
 ])
 
 gsk_private_gpu_shader_headers = []
@@ -106,6 +108,15 @@ foreach shader: gsk_private_gpu_shaders
         [ '--target-env=vulkan1.0',
           '-fshader-stage=fragment',
           '-DGSK_FRAGMENT_SHADER=1',
+          '-I'+meson.current_source_dir(),
+          '-I'+meson.current_build_dir(),
+        ]
+      ],
+      [ fs.name (fs.replace_suffix (shader, '')) + '-clipmask.frag.spv',
+        [ '--target-env=vulkan1.0',
+          '-fshader-stage=fragment',
+          '-DGSK_FRAGMENT_SHADER=1',
+          '-DGSK_VULKAN_HAS_CLIP_MASK',
           '-I'+meson.current_source_dir(),
           '-I'+meson.current_build_dir(),
         ]

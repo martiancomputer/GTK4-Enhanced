@@ -25,11 +25,11 @@
 #include "gdktoplevel.h"
 #include <graphene.h>
 
+#include <gsk/gsktypes.h>
+
 G_BEGIN_DECLS
 
 typedef struct _GdkSubsurface GdkSubsurface;
-
-typedef struct _GskRenderNode GskRenderNode;
 
 struct _GdkSurface
 {
@@ -79,8 +79,6 @@ struct _GdkSurface
     GdkGravity rect_anchor;
   } popup;
 
-  guint update_and_descendants_freeze_count;
-
   int width, height;
 
   GdkCursor *cursor;
@@ -91,8 +89,6 @@ struct _GdkSurface
   GList *devices_inside;
 
   GdkFrameClock *frame_clock; /* NULL to use from parent or default */
-
-  GdkDrawContext *paint_context;
 
   GdkSeat *current_shortcuts_inhibited_seat;
 
@@ -171,9 +167,6 @@ struct _GdkSurfaceClass
 
 #define GDK_SURFACE_IS_MAPPED(surface) ((surface)->pending_is_mapped)
 
-void gdk_surface_set_state (GdkSurface      *surface,
-                            GdkToplevelState  new_state);
-
 void gdk_surface_set_is_mapped (GdkSurface *surface,
                                 gboolean    is_mapped);
 
@@ -182,17 +175,24 @@ GdkMonitor * gdk_surface_get_layout_monitor (GdkSurface      *surface,
                                              void           (*get_bounds) (GdkMonitor   *monitor,
                                                                            GdkRectangle *bounds));
 
-void gdk_surface_layout_popup_helper (GdkSurface     *surface,
-                                      int             width,
-                                      int             height,
-                                      int             shadow_left,
-                                      int             shadow_right,
-                                      int             shadow_top,
-                                      int             shadow_bottom,
-                                      GdkMonitor     *monitor,
-                                      GdkRectangle   *bounds,
-                                      GdkPopupLayout *layout,
-                                      GdkRectangle   *out_final_rect);
+typedef enum
+{
+  GDK_SURFACE_LAYOUT_POPUP_HELPER_DEFAULT  = 0,
+  GDK_SURFACE_LAYOUT_POPUP_HELPER_ROOT_OUT = 1 << 0,
+} GdkSurfaceLayoutPopupHelperFlags;
+
+void gdk_surface_layout_popup_helper (GdkSurface                       *surface,
+                                      int                               width,
+                                      int                               height,
+                                      int                               shadow_left,
+                                      int                               shadow_right,
+                                      int                               shadow_top,
+                                      int                               shadow_bottom,
+                                      GdkMonitor                       *monitor,
+                                      GdkRectangle                     *bounds,
+                                      GdkPopupLayout                   *layout,
+                                      GdkSurfaceLayoutPopupHelperFlags  flags,
+                                      GdkRectangle                     *out_final_rect);
 
 static inline GdkGravity
 gdk_gravity_flip_horizontally (GdkGravity anchor)
@@ -260,7 +260,6 @@ void       gdk_surface_invalidate_rect    (GdkSurface            *surface,
                                            const GdkRectangle    *rect);
 void       gdk_surface_invalidate_region  (GdkSurface            *surface,
                                            const cairo_region_t  *region);
-void       _gdk_surface_clear_update_area (GdkSurface            *surface);
 void       _gdk_surface_update_size       (GdkSurface            *surface);
 void       gdk_surface_set_opaque_rect    (GdkSurface            *self,
                                            const graphene_rect_t *rect);
@@ -341,10 +340,7 @@ void       gdk_surface_queue_state_change  (GdkSurface       *surface,
 
 void       gdk_surface_apply_state_change  (GdkSurface       *surface);
 
-GDK_AVAILABLE_IN_ALL
 void           gdk_surface_request_motion (GdkSurface *surface);
-
-gboolean       gdk_surface_supports_edge_constraints    (GdkSurface *surface);
 
 GdkSubsurface * gdk_surface_create_subsurface  (GdkSurface          *surface);
 gsize           gdk_surface_get_n_subsurfaces  (GdkSurface          *surface);
@@ -357,5 +353,8 @@ void                    gdk_surface_set_color_state                     (GdkSurf
 void                    gdk_surface_set_attached_context                (GdkSurface             *self,
                                                                          GdkDrawContext         *context);
 GdkDrawContext *        gdk_surface_get_attached_context                (GdkSurface             *self);
+void                    gdk_surface_set_content                         (GdkSurface             *self,
+                                                                         GskRenderNode          *content);
+GskRenderNode *         gdk_surface_get_content                         (GdkSurface             *self);
 
 G_END_DECLS

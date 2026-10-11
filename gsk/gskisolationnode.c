@@ -23,6 +23,7 @@
 #include "gskrectprivate.h"
 #include "gskrendernodeprivate.h"
 #include "gskrenderreplay.h"
+#include "gpu/gskgpuocclusionprivate.h"
 
 #include "gdk/gdkcairoprivate.h"
 
@@ -179,6 +180,15 @@ gsk_isolation_node_replay (GskRenderNode   *node,
   return result;
 }
 
+static GskGpuRenderPass *
+gsk_isolation_node_occlusion (GskRenderNode   *node,
+                              GskGpuOcclusion *occlusion)
+{
+  GskIsolationNode *self = (GskIsolationNode *) node;
+
+  return gsk_gpu_occlusion_try_node (occlusion, self->child, 0);
+}
+
 static void
 gsk_isolation_node_class_init (gpointer g_class,
                                gpointer class_data)
@@ -193,6 +203,7 @@ gsk_isolation_node_class_init (gpointer g_class,
   node_class->get_children = gsk_isolation_node_get_children;
   node_class->replay = gsk_isolation_node_replay;
   node_class->render_opacity = gsk_isolation_node_render_opacity;
+  node_class->occlusion = gsk_isolation_node_occlusion;
 }
 
 GSK_DEFINE_RENDER_NODE_TYPE (GskIsolationNode, gsk_isolation_node)
@@ -227,7 +238,8 @@ gsk_isolation_node_new (GskRenderNode *child,
 
   self = gsk_render_node_alloc (GSK_TYPE_ISOLATION_NODE);
   node = (GskRenderNode *) self;
-  node->fully_opaque = child->fully_opaque;
+  node->fully_opaque = gsk_render_node_is_fully_opaque (child);
+  node->bilevel_opacity = gsk_render_node_is_bilevel_opacity (child);
 
   self->child = gsk_render_node_ref (child);
   self->isolations = isolations;
@@ -236,7 +248,11 @@ gsk_isolation_node_new (GskRenderNode *child,
 
   node->preferred_depth = gsk_render_node_get_preferred_depth (child);
   node->is_hdr = gsk_render_node_is_hdr (child);
-  if (!gsk_isolation_node_is_isolating (self, GSK_ISOLATION_BACKGROUND))
+  if (gsk_isolation_node_is_isolating (self, GSK_ISOLATION_BACKGROUND))
+    {
+      node->isolates_background = TRUE;
+    }
+  else
     {
       node->clears_background = gsk_render_node_clears_background (child);
       node->copy_mode = gsk_render_node_get_copy_mode (child);

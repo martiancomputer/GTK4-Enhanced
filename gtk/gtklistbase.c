@@ -243,12 +243,17 @@ gtk_list_base_adjustment_value_changed_cb (GtkAdjustment *adjustment,
   else
     side_along = GTK_PACK_START;
 
-  /* Compute the align based on side to keep the values identical */
-  if (side_across == GTK_PACK_START)
+  /* Compute the align based on side to keep the values identical.
+   * The viewport can be empty, so avoid dividing by zero. */
+  if (area.width == 0)
+    align_across = 0;
+  else if (side_across == GTK_PACK_START)
     align_across = (double) (cell_area.x - area.x) / area.width;
   else
     align_across = (double) (cell_area.x + cell_area.width - area.x) / area.width;
-  if (side_along == GTK_PACK_START)
+  if (area.height == 0)
+    align_along = 0;
+  else if (side_along == GTK_PACK_START)
     align_along = (double) (cell_area.y - area.y) / area.height;
   else
     align_along = (double) (cell_area.y + cell_area.height - area.y) / area.height;
@@ -844,9 +849,20 @@ gtk_list_base_compute_scroll_align (int            cell_start,
   visible_end = visible_start + visible_size;
   cell_end = cell_start + cell_size;
 
-  if (cell_size <= visible_size)
+  if (visible_size == 0)
     {
-      if (cell_start < visible_start)
+      /* Avoid division by 0 */
+      *new_align = current_align;
+      *new_side = current_side;
+    }
+  else if (cell_size <= visible_size)
+    {
+      if (visible_size <= 0)
+        {
+          *new_align = current_align;
+          *new_side = current_side;
+        }
+      else if (cell_start < visible_start)
         {
           *new_align = 0.0;
           *new_side = GTK_PACK_START;
@@ -1208,7 +1224,7 @@ gtk_list_base_add_move_binding (GtkWidgetClass *widget_class,
 {
   gtk_widget_class_add_binding (widget_class,
                                 keyval,
-                                0,
+                                GDK_NO_MODIFIER_MASK,
                                 gtk_list_base_move_cursor,
                                 "(ubbbi)", orientation, TRUE, FALSE, FALSE, amount);
   gtk_widget_class_add_binding (widget_class,
@@ -1235,7 +1251,7 @@ gtk_list_base_add_custom_move_binding (GtkWidgetClass  *widget_class,
 {
   gtk_widget_class_add_binding (widget_class,
                                 keyval,
-                                0,
+                                GDK_NO_MODIFIER_MASK,
                                 callback,
                                 "(bbb)", TRUE, FALSE, FALSE);
   gtk_widget_class_add_binding (widget_class,
@@ -1295,7 +1311,7 @@ gtk_list_base_class_init (GtkListBaseClass *klass)
     g_param_spec_enum ("orientation", NULL, NULL,
                        GTK_TYPE_ORIENTATION,
                        GTK_ORIENTATION_VERTICAL,
-                       G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY);
+                       G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_NAME);
 
   g_object_class_install_properties (gobject_class, N_PROPS, properties);
 
@@ -1357,22 +1373,14 @@ gtk_list_base_class_init (GtkListBaseClass *klass)
                                    gtk_list_base_unselect_all);
 
   gtk_list_base_add_move_binding (widget_class, GDK_KEY_Up, GTK_ORIENTATION_VERTICAL, -1);
-  gtk_list_base_add_move_binding (widget_class, GDK_KEY_KP_Up, GTK_ORIENTATION_VERTICAL, -1);
   gtk_list_base_add_move_binding (widget_class, GDK_KEY_Down, GTK_ORIENTATION_VERTICAL, 1);
-  gtk_list_base_add_move_binding (widget_class, GDK_KEY_KP_Down, GTK_ORIENTATION_VERTICAL, 1);
   gtk_list_base_add_move_binding (widget_class, GDK_KEY_Left, GTK_ORIENTATION_HORIZONTAL, -1);
-  gtk_list_base_add_move_binding (widget_class, GDK_KEY_KP_Left, GTK_ORIENTATION_HORIZONTAL, -1);
   gtk_list_base_add_move_binding (widget_class, GDK_KEY_Right, GTK_ORIENTATION_HORIZONTAL, 1);
-  gtk_list_base_add_move_binding (widget_class, GDK_KEY_KP_Right, GTK_ORIENTATION_HORIZONTAL, 1);
 
   gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_Home, gtk_list_base_move_cursor_to_start);
-  gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_KP_Home, gtk_list_base_move_cursor_to_start);
   gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_End, gtk_list_base_move_cursor_to_end);
-  gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_KP_End, gtk_list_base_move_cursor_to_end);
   gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_Page_Up, gtk_list_base_move_cursor_page_up);
-  gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_KP_Page_Up, gtk_list_base_move_cursor_page_up);
   gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_Page_Down, gtk_list_base_move_cursor_page_down);
-  gtk_list_base_add_custom_move_binding (widget_class, GDK_KEY_KP_Page_Down, gtk_list_base_move_cursor_page_down);
 
 #ifdef __APPLE__
   gtk_widget_class_add_binding_action (widget_class, GDK_KEY_a, GDK_META_MASK, "list.select-all", NULL);
@@ -1838,8 +1846,7 @@ gtk_list_base_stop_rubberband (GtkListBase *self)
 
   gtk_list_item_tracker_free (priv->item_manager, priv->rubberband->start_tracker);
   g_clear_pointer (&priv->rubberband->widget, gtk_widget_unparent);
-  g_free (priv->rubberband);
-  priv->rubberband = NULL;
+  g_clear_pointer (&priv->rubberband, g_free);
 
   remove_autoscroll (self);
 }
@@ -2288,6 +2295,9 @@ gtk_list_base_set_anchor (GtkListBase *self,
 {
   GtkListBasePrivate *priv = gtk_list_base_get_instance_private (self);
   guint items_before;
+
+  g_return_if_fail (isfinite (anchor_align_across));
+  g_return_if_fail (isfinite (anchor_align_along));
 
   items_before = round (priv->center_widgets * CLAMP (anchor_align_along, 0, 1));
   gtk_list_item_tracker_set_position (priv->item_manager,

@@ -44,6 +44,8 @@
 #include "gskrendererprivate.h"
 #include "gskrendernodeparserprivate.h"
 
+#include "gpu/gskgpuocclusionprivate.h"
+
 #include "gdk/gdkcairoprivate.h"
 #include "gdk/gdkcolorstateprivate.h"
 
@@ -197,6 +199,7 @@ gsk_render_node_class_init (GskRenderNodeClass *klass)
   klass->get_children = gsk_render_node_real_get_children;
   klass->replay = gsk_render_node_real_replay;
   klass->render_opacity = gsk_render_node_real_render_opacity;
+  klass->occlusion = gsk_render_node_default_occlusion;
 }
 
 static void
@@ -942,6 +945,18 @@ gboolean
 gsk_render_node_is_fully_opaque (const GskRenderNode *node)
 {
   return node->fully_opaque;
+}
+
+gboolean
+gsk_render_node_is_bilevel_opacity (const GskRenderNode *node)
+{
+  return node->bilevel_opacity;
+}
+
+gboolean
+gsk_render_node_isolates_background (const GskRenderNode *node)
+{
+  return node->isolates_background;
 }
 
 gboolean

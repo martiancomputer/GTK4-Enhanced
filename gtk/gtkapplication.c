@@ -750,7 +750,7 @@ gtk_application_class_init (GtkApplicationClass *class)
   gtk_application_props[PROP_REGISTER_SESSION] =
     g_param_spec_boolean ("register-session", NULL, NULL,
                           FALSE,
-                          G_PARAM_READWRITE|G_PARAM_STATIC_STRINGS|G_PARAM_DEPRECATED);
+                          G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_DEPRECATED);
 
   /**
    * GtkApplication:screensaver-active:
@@ -764,7 +764,7 @@ gtk_application_class_init (GtkApplicationClass *class)
   gtk_application_props[PROP_SCREENSAVER_ACTIVE] =
     g_param_spec_boolean ("screensaver-active", NULL, NULL,
                           FALSE,
-                          G_PARAM_READABLE|G_PARAM_STATIC_STRINGS);
+                          G_PARAM_READABLE | G_PARAM_STATIC_NAME);
 
   /**
    * GtkApplication:menubar:
@@ -774,7 +774,7 @@ gtk_application_class_init (GtkApplicationClass *class)
   gtk_application_props[PROP_MENUBAR] =
     g_param_spec_object ("menubar", NULL, NULL,
                          G_TYPE_MENU_MODEL,
-                         G_PARAM_READWRITE|G_PARAM_STATIC_STRINGS);
+                         G_PARAM_READWRITE | G_PARAM_STATIC_NAME);
 
   /**
    * GtkApplication:active-window:
@@ -784,7 +784,7 @@ gtk_application_class_init (GtkApplicationClass *class)
   gtk_application_props[PROP_ACTIVE_WINDOW] =
     g_param_spec_object ("active-window", NULL, NULL,
                          GTK_TYPE_WINDOW,
-                         G_PARAM_READABLE|G_PARAM_STATIC_STRINGS);
+                         G_PARAM_READABLE | G_PARAM_STATIC_NAME);
 
   g_object_class_install_properties (object_class, NUM_PROPERTIES, gtk_application_props);
 }
@@ -1371,7 +1371,7 @@ gtk_application_set_screensaver_active (GtkApplication *application,
   if (priv->screensaver_active != active)
     {
       priv->screensaver_active = active;
-      g_object_notify (G_OBJECT (application), "screensaver-active");
+      g_object_notify_by_pspec (G_OBJECT (application), gtk_application_props[PROP_SCREENSAVER_ACTIVE]);
     }
 }
 
@@ -1389,7 +1389,7 @@ collect_window_state (GtkApplication *application,
 
   dict = g_variant_dict_new (NULL);
   if (GTK_IS_APPLICATION_WINDOW (window))
-    gtk_application_window_save (GTK_APPLICATION_WINDOW (window), dict);
+    gtk_application_window_save_state (GTK_APPLICATION_WINDOW (window), dict);
 
   state = g_variant_new ("(a{sv}@a{sv})", &builder, g_variant_dict_end (dict));
   g_variant_dict_unref (dict);
@@ -1466,17 +1466,13 @@ collect_state (GtkApplication *application)
 
 /*<private>
  * gtk_application_save:
- * @application: a `GtkApplication`
+ * @application: an application
  *
- * Saves the state of application.
+ * Saves the state of the application.
  *
  * See [method@Gtk.Application.forget] for a way to forget the state.
  *
- * If [property@Gtk.Application:register-session] is set, `GtkApplication`
- * calls this function automatically when the application is closed or
- * the session ends.
- *
- * Since: 4.22
+ * Since: 4.24
  */
 void
 gtk_application_save (GtkApplication *application)
@@ -1489,6 +1485,17 @@ gtk_application_save (GtkApplication *application)
   if (!priv->support_save)
     return;
 
+  if (priv->forgotten)
+    {
+      for (GList *l = priv->windows; l != NULL; l = l->next)
+        {
+          GtkWindow *window = GTK_WINDOW (l->data);
+          gtk_application_impl_window_unforget (priv->impl, window);
+        }
+
+      gtk_application_impl_unforget_state (priv->impl);
+    }
+
   state = collect_state (application);
   gtk_application_impl_store_state (priv->impl, state);
   g_variant_unref (state);
@@ -1499,15 +1506,14 @@ gtk_application_save (GtkApplication *application)
 
 /*<private>
  * gtk_application_forget:
- * @application: a `GtkApplication`
+ * @application: an application
  *
- * Forget state that has been previously saved and prevent
- * further automatic state saving.
+ * Forget state that has been previously saved and prevent further automatic
+ * state saving.
  *
- * In order to reenable state saving, call
- * [method@Gtk.Application.save].
+ * In order to re-enable state saving, call [method@Gtk.Application.save].
  *
- * Since: 4.22
+ * Since: 4.24
  */
 void
 gtk_application_forget (GtkApplication *application)
@@ -1519,8 +1525,10 @@ gtk_application_forget (GtkApplication *application)
 
   if (priv->kept_window_state)
     {
-      // TODO: Tell compositor to forget the window state
-      //       (currently impossible due to https://gitlab.freedesktop.org/wayland/wayland-protocols/-/merge_requests/18#note_3171587)
+      GVariant *gtk_state;
+      g_variant_get (priv->kept_window_state, "(@a{sv}@a{sv})", &gtk_state, NULL);
+      gtk_application_impl_window_forget_by_state (priv->impl, gtk_state);
+      g_variant_unref (gtk_state);
       g_clear_pointer (&priv->kept_window_state, g_variant_unref);
     }
 
@@ -1555,8 +1563,7 @@ restore_window (GtkApplication   *application,
   if (priv->pending_window_state)
     {
       GTK_DEBUG (SESSION, "App didn't restore a toplevel, removing it from session");
-      // TODO: Tell compositor to forget the window state
-      // (currently impossible due to https://gitlab.freedesktop.org/wayland/wayland-protocols/-/merge_requests/18#note_3171587)
+      gtk_application_impl_window_forget_by_state (priv->impl, gtk_state);
       priv->pending_window_state = NULL;
     }
 }

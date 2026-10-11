@@ -20,6 +20,7 @@
 #include <string.h>
 #include <locale.h>
 
+#include "gtkimcontextprivate.h"
 #include "gtkimmulticontext.h"
 #include "gtkimmoduleprivate.h"
 #include "gtklabel.h"
@@ -206,11 +207,12 @@ gtk_im_multicontext_set_delegate (GtkIMMulticontext *multicontext,
 					    gtk_im_multicontext_delete_surrounding_cb,
 					    multicontext);
 
+      gtk_im_context_set_parent_node (GTK_IM_CONTEXT (priv->delegate), NULL);
+
       if (priv->client_widget)
         gtk_im_context_set_client_widget (priv->delegate, NULL);
 
-      g_object_unref (priv->delegate);
-      priv->delegate = NULL;
+      g_clear_object (&priv->delegate);
 
       if (!finalizing)
 	need_preedit_changed = TRUE;
@@ -220,6 +222,8 @@ gtk_im_multicontext_set_delegate (GtkIMMulticontext *multicontext,
 
   if (priv->delegate)
     {
+      GtkCssNode *parent_node;
+
       g_object_ref (priv->delegate);
 
       propagate_purpose (multicontext);
@@ -242,6 +246,9 @@ gtk_im_multicontext_set_delegate (GtkIMMulticontext *multicontext,
       g_signal_connect (priv->delegate, "delete-surrounding",
 			G_CALLBACK (gtk_im_multicontext_delete_surrounding_cb),
 			multicontext);
+
+      parent_node = gtk_im_context_get_parent_node (GTK_IM_CONTEXT (multicontext));
+      gtk_im_context_set_parent_node (GTK_IM_CONTEXT (delegate), parent_node);
 
       if (!priv->use_preedit)	/* Default is TRUE */
 	gtk_im_context_set_use_preedit (delegate, FALSE);
@@ -384,7 +391,7 @@ gtk_im_multicontext_filter_keypress (GtkIMContext *context,
       keyval = gdk_key_event_get_keyval (event);
       state = gdk_event_get_modifier_state (event);
 
-      no_text_input_mask = GDK_ALT_MASK|GDK_CONTROL_MASK;
+      no_text_input_mask = GDK_ALT_MASK|GDK_CONTROL_MASK|GDK_SUPER_MASK|GDK_HYPER_MASK;
 
       if (gdk_event_get_event_type (event) == GDK_KEY_PRESS &&
           (state & no_text_input_mask) == 0)

@@ -47,14 +47,15 @@ struct _GskGpuDeviceClass
 
 };
 
-GType                   gsk_gpu_device_get_type                         (void) G_GNUC_CONST;
+GType                   gsk_gpu_device_get_type                         (void);
 
 void                    gsk_gpu_device_setup                            (GskGpuDevice           *self,
                                                                          GdkDisplay             *display,
                                                                          gsize                   max_image_size,
                                                                          gsize                   tile_size,
                                                                          gsize                   globals_alignment);
-void                    gsk_gpu_device_maybe_gc                         (GskGpuDevice           *self);
+void                    gsk_gpu_device_maybe_gc                         (GskGpuDevice           *self,
+                                                                         gint64                  timestamp);
 void                    gsk_gpu_device_queue_gc                         (GskGpuDevice           *self);
 GdkDisplay *            gsk_gpu_device_get_display                      (GskGpuDevice           *self);
 GskGpuCache *           gsk_gpu_device_get_cache                        (GskGpuDevice           *self);

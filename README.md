@@ -6,9 +6,9 @@ GTK4-Enhanced is an experimental, independently maintained fork of [GTK 4](https
 
 The first intended consumer is [SpotifyGTK](https://github.com/martiancomputer/SpotifyGTK), but enhancements are designed for GTK applications in general.
 
-> **Project status: source baseline imported / experimental.** GTK **4.22.4** source, examples, demos, tests, and build support are present. No enhanced frame-clock or visual-effect implementation has been added yet. The capabilities below remain goals, not benchmarked features. There is no stable GTK4-Enhanced release.
+> **Project status: experimental.** The baseline is GTK **4.24.1**, retaining its examples, demos, tests, and build support. An opt-in frame-rate ceiling is implemented in GDK; it is not a certification of physical high-refresh presentation. Transparency and other visual-effect enhancements remain future work. There is no stable GTK4-Enhanced release.
 
-The exact source commit is `7f99ab1a26408b6499a18f353f081e3c0598ea5c`.
+The exact source commit is `2ea935e3ec680fb122f245b28e18c3495df8c344`.
 See [UPSTREAM.md](UPSTREAM.md) for provenance, import boundaries, and licensing.
 Upstream CI jobs and hosting templates were intentionally left out. CI and
 consumer packaging come after a working local experiment.
@@ -41,14 +41,14 @@ Compatibility is an **engineering requirement**, not yet a certification. Each r
 
 | Milestone | Deliverable | Status |
 | --- | --- | --- |
-| **B0 — Foundation** | Import GTK 4.22.4, reproducible builds, ABI comparison and benchmarks | Source imported; Linux build smoke check passed; broader compatibility validation pending |
-| **R1 — Frame timing** | Monitor-aware scheduling, Win32 investigation, proper fallbacks | Planned |
+| **B0 — Foundation** | Maintain GTK 4.24.1, reproducible builds, ABI comparison and benchmarks | Source imported; Linux build smoke check passed; broader compatibility validation pending |
+| **R1 — Frame timing** | Monitor-aware scheduling, Win32 investigation, proper fallbacks | Experimental per-clock ceiling; headless scheduler coverage; hardware validation pending |
 | **R2 — High refresh** | Hardware-validated 120 / 144 Hz rendering | Planned |
 | **R3–R4 — Experimental** | 165 / 240 / 360 Hz investigation and performance tuning | Planned |
 | **V1 — Transparency** | Alpha surfaces, clipping, and input correctness | Planned |
 | **V2 — Materials** | Windows backdrops and negotiated compositor blur | Planned |
 | **V3 — Effects** | Additional optional visual effects | Planned |
-| **P1 — Integration** | Isolated packages, CI, and SpotifyGTK submodule integration | Deferred until the local experiment works |
+| **P1 — Integration** | Isolated packages, CI, and SpotifyGTK submodule integration | Isolated Linux runtime and live SpotifyGTK loading verified; CI and distribution packaging deferred |
 
 The rendering and visual-effects tracks can progress **independently** once B0 is complete. Measured correctness and compatibility take priority over a target FPS or a visual demo.
 
@@ -59,12 +59,12 @@ tree includes the supporting resources and dependency recipes, not prebuilt
 GTK or a bundled system SDK.
 
 For the initial Linux experiment, provide a C toolchain, Python 3, Meson
-1.5 or newer, Ninja, pkg-config, Gettext, and development packages for GLib
-2.84+, Pango 1.56+, Cairo 1.18.2+, GdkPixbuf, Graphene, HarfBuzz, FriBidi,
+1.8 or newer, Ninja, pkg-config, Gettext, and development packages for GLib
+2.89.3+, Pango 1.58+, Cairo 1.18.2+, GdkPixbuf, Graphene, HarfBuzz, FriBidi,
 Epoxy, Fontconfig, image codecs, and the selected windowing backends. Wayland
-needs wayland-client 1.24+ and wayland-protocols 1.44+; the default Linux build
+needs wayland-client 1.24+ and wayland-protocols 1.48+; the default Linux build
 also enables X11. Vulkan needs its headers/loader and `glslc`. The default
-media backend needs GStreamer 1.24+ development libraries.
+media backend needs GStreamer 1.28+ development libraries.
 
 GLib's development **tools** are required as well as its runtime and headers:
 `glib-mkenums`, `glib-genmarshal`, and `gdbus-codegen`. On distributions that
@@ -106,7 +106,7 @@ experimental fork into `/usr` or `/usr/local`.
 
 The build retains upstream MSYS2/UCRT64 support, but the first experiment is
 Linux-only. Windows builds and packaging are not validated by a Linux compile.
-Consult the pinned [upstream contribution instructions](https://github.com/GNOME/gtk/blob/4.22.4/CONTRIBUTING.md)
+Consult the pinned [upstream contribution instructions](https://github.com/GNOME/gtk/blob/4.24.1/CONTRIBUTING.md)
 for additional platform prerequisites.
 
 ### Source map and experiment programs
@@ -143,7 +143,38 @@ explicit manual validation of the actual regression. A full upstream run,
 when appropriate, is `meson test -C _build --print-errorlogs`. Do not interpret
 a compile or a small test subset as ABI or high-refresh certification.
 
-### Baseline verification
+### Frame-rate experiment
+
+See [FRAME_POLICY.md](FRAME_POLICY.md) for the versioned object-data protocol,
+deadline arithmetic, input handling, ownership, platform limits and rollback.
+Default is upstream pacing. Explicit rates from 30 through 360 are rendering
+ceilings; they do not force frames or override compositor/monitor throttling.
+
+On Linux x86_64, GCC 16.2.1, GLib 2.90.1 and GTK 4.24.1, the shared library,
+GTK Demo and `examples/window-default` built successfully. The following
+headless subset passed **6 tests / 86 subtests**:
+
+```sh
+env -u DISPLAY -u WAYLAND_DISPLAY meson test -C _build --no-rebuild \
+  --print-errorlogs enhanced-frame-policy array rgba path-intersect curve-intersect half-float
+```
+
+A same-configuration stock 4.24.1 comparison, using the unmodified upstream
+frame-clock implementation, had the same **5,510 defined dynamic exports**
+(names and symbol kinds) and `libgtk-4.so.1` SONAME. GTK/GSK and installed
+public-header source contracts match the pinned upstream tree. An unused
+private helper declaration remained in the comparison build; it has no exported
+or installed API. The system GTK additionally enables Broadway, so its export
+set is not used as the same-configuration baseline. A full ABI-layout tool was
+not available; export equality is not a complete ABI certification.
+
+The full upstream suite, introspection packaging, non-Linux platforms, physical
+refresh/presentation rates, monitor moves, power costs and manual scrolling
+remain unverified. No automated GUI interaction was used. GCC emitted existing
+null-dereference warnings in upstream array-test assertions; those tests passed
+without suppressing warnings or changing the assertions.
+
+### Historical 4.22.4 import verification
 
 The initial Linux smoke check (2026-10-11) configured the pinned source with
 Wayland, X11, Vulkan, examples, demos, and tests enabled. It successfully built
@@ -179,12 +210,24 @@ remain **unverified**. This smoke check does not complete the B0 exit gate.
 
 ### Using it with SpotifyGTK
 
-SpotifyGTK will reference this repository as a **pinned Git submodule**. Its build process must explicitly link against the enhanced GTK build and bundle its runtime libraries where required (notably for Windows MSIX). A submodule alone does not make an application load the fork.
+SpotifyGTK owns the **pinned Git submodule** and provides separate Linux build
+and launch scripts for this experiment. Its build process must explicitly link
+against the enhanced GTK build and bundle its runtime libraries where required
+(notably for Windows MSIX). A submodule alone does not make an application load
+the fork.
 
-Until integration is validated, **standard GTK4 remains the supported fallback**.
-This import does not change SpotifyGTK's submodule pointer, build, running
-process, or system GTK. Keep independent stock and enhanced builds for rollback
-and compare against the exact upstream base in [UPSTREAM.md](UPSTREAM.md).
+The isolated GTK-first, SpotifyGTK-second build completed successfully with
+GTK 4.24.1 and the host's unchanged libadwaita 1.10.0. After relaunch, the live
+consumer's process mappings confirmed the staged enhanced GTK library and
+system libadwaita. SpotifyGTK's headless settings and presentation-policy tests
+also passed (2 tests / 5 subtests). These checks do not establish scrolling
+performance, physical presentation rates, or Windows package compatibility.
+
+**Standard GTK4 remains the fallback.** The enhanced executable also completed
+its command-line help path with stock GTK selected by the loader; a full live
+stock-runtime comparison remains pending. Keep independent stock and enhanced
+builds for rollback and compare against the exact upstream base in
+[UPSTREAM.md](UPSTREAM.md). No system toolkit libraries were replaced.
 
 ## Contributing
 
@@ -200,7 +243,7 @@ GTK4-Enhanced is **not an official GNOME or GTK release**.
 
 - **Canonical upstream:** [GNOME/gtk on GitLab](https://gitlab.gnome.org/GNOME/gtk)
 - **Upstream GitHub mirror:** [GNOME/gtk](https://github.com/GNOME/gtk)
-- **Starting point:** GTK **4.22.4** (`4.22.4` tag)
+- **Current baseline:** GTK **4.24.1** (`4.24.1` tag); initially imported from 4.22.4
 
 GTK is licensed under **LGPL-2.1-or-later**, with component-specific notices.
 Original attribution, license notices, and applicable source-distribution

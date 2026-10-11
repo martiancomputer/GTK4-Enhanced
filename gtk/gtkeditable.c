@@ -79,7 +79,7 @@
  * {
  *   ...
  *   g_object_class_install_properties (object_class, NUM_PROPERTIES, props);
- *   gtk_editable_install_properties (object_clas, NUM_PROPERTIES);
+ *   gtk_editable_install_properties (object_class, NUM_PROPERTIES);
  *   ...
  * }
  * ```
@@ -170,6 +170,7 @@ enum {
   CHANGED,
   DELETE_TEXT,
   INSERT_TEXT,
+  INPUT_INTERCEPTED,
   N_SIGNALS
 };
 
@@ -247,6 +248,17 @@ gtk_editable_default_get_text (GtkEditable *editable)
   return NULL;
 }
 
+static char *
+gtk_editable_default_get_complete_text (GtkEditable *editable)
+{
+  GtkEditable *delegate = get_delegate (editable);
+
+  if (delegate)
+    return gtk_editable_get_complete_text (delegate);
+  else
+    return g_strdup (gtk_editable_get_text (editable));
+}
+
 static void
 gtk_editable_default_set_selection_bounds (GtkEditable *editable,
                                            int          start_pos,
@@ -283,6 +295,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
   iface->insert_text = gtk_editable_default_insert_text;
   iface->delete_text = gtk_editable_default_delete_text;
   iface->get_text = gtk_editable_default_get_text;
+  iface->get_complete_text = gtk_editable_default_get_complete_text;
   iface->do_insert_text = gtk_editable_default_do_insert_text;
   iface->do_delete_text = gtk_editable_default_do_delete_text;
   iface->get_selection_bounds = gtk_editable_default_get_selection_bounds;
@@ -374,6 +387,27 @@ gtk_editable_default_init (GtkEditableInterface *iface)
                   G_TYPE_NONE, 0);
 
   /**
+   * GtkEditable::input-intercepted:
+   * @editable: the object which received the signal
+   *
+   * Emitted whenever keyboard input has been handled through the
+   * input interceptor widget set through [method@Gtk.Editable.set_input_interceptor]
+   *
+   * A typical reaction to this event would be to show and focus @editable, so
+   * that input is handled directly. In that case keyboard input will no longer
+   * be handled through the input interceptor and this signal will stop being
+   * emitted.
+   *
+   * Since: 4.24
+   */
+  signals[INPUT_INTERCEPTED] =
+    g_signal_new (I_("input-intercepted"),
+                  GTK_TYPE_EDITABLE,
+                  G_SIGNAL_RUN_LAST,
+                  0, NULL, NULL, NULL,
+                  G_TYPE_NONE, 0);
+
+  /**
    * GtkEditable:text:
    *
    * The contents of the entry.
@@ -381,7 +415,20 @@ gtk_editable_default_init (GtkEditableInterface *iface)
   g_object_interface_install_property (iface,
       g_param_spec_string ("text", NULL, NULL,
                            "",
-                           GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                           G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
+
+  /**
+   * GtkEditable:complete-text:
+   *
+   * The contents of the entry, including uncommited content such as the
+   * preedit.
+   *
+   * Since: 4.24
+   */
+  g_object_interface_install_property (iface,
+      g_param_spec_string ("complete-text", NULL, NULL,
+                           "",
+                           G_PARAM_READABLE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 
   /**
    * GtkEditable:cursor-position: (getter get_position) (setter set_position)
@@ -392,7 +439,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
       g_param_spec_int ("cursor-position", NULL, NULL,
                         0, GTK_ENTRY_BUFFER_MAX_SIZE,
                         0,
-                        GTK_PARAM_READABLE));
+                        G_PARAM_READABLE | G_PARAM_STATIC_NAME));
 
   /**
    * GtkEditable:enable-undo:
@@ -402,7 +449,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
   g_object_interface_install_property (iface,
       g_param_spec_boolean ("enable-undo", NULL, NULL,
                             TRUE,
-                            GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                            G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 
   /**
    * GtkEditable:selection-bound:
@@ -413,7 +460,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
       g_param_spec_int ("selection-bound", NULL, NULL,
                         0, GTK_ENTRY_BUFFER_MAX_SIZE,
                         0,
-                        GTK_PARAM_READABLE));
+                        G_PARAM_READABLE | G_PARAM_STATIC_NAME));
 
   /**
    * GtkEditable:editable:
@@ -423,7 +470,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
   g_object_interface_install_property (iface,
       g_param_spec_boolean ("editable", NULL, NULL,
                             TRUE,
-                            GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                            G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 
   /**
    * GtkEditable:width-chars:
@@ -434,7 +481,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
       g_param_spec_int ("width-chars", NULL, NULL,
                         -1, G_MAXINT,
                         -1,
-                        GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                        G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 
   /**
    * GtkEditable:max-width-chars:
@@ -445,7 +492,7 @@ gtk_editable_default_init (GtkEditableInterface *iface)
       g_param_spec_int ("max-width-chars", NULL, NULL,
                         -1, G_MAXINT,
                         -1,
-                        GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                        G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 
   /**
    * GtkEditable:xalign: (getter get_alignment) (setter set_alignment)
@@ -458,7 +505,19 @@ gtk_editable_default_init (GtkEditableInterface *iface)
       g_param_spec_float ("xalign", NULL, NULL,
                           0.0, 1.0,
                           0.0,
-                          GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY));
+                          G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
+
+  /**
+   * GtkEditable:input-interceptor: (getter get_input_interceptor) (setter set_input_interceptor)
+   *
+   * The widget used to intercept input for this editable
+   *
+   * Since: 4.24
+   */
+  g_object_interface_install_property (iface,
+      g_param_spec_object ("input-interceptor", NULL, NULL,
+                           GTK_TYPE_WIDGET,
+                           G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY));
 }
 
 /**
@@ -610,6 +669,24 @@ gtk_editable_set_text (GtkEditable *editable,
   pos = 0;
   gtk_editable_insert_text (editable, text, -1, &pos);
   g_object_thaw_notify (G_OBJECT (editable));
+}
+
+/**
+ * gtk_editable_get_complete_text:
+ * @editable: a `GtkEditable`
+ *
+ * Retrieves the contents of @editable, including *pseudo-content*
+ * such as the preedit buffer.
+ *
+ * Returns: (transfer full): the complete contents of the editable
+ * Since: 4.24
+ */
+char *
+gtk_editable_get_complete_text (GtkEditable *editable)
+{
+  g_return_val_if_fail (GTK_IS_EDITABLE (editable), NULL);
+
+  return GTK_EDITABLE_GET_IFACE (editable)->get_complete_text (editable);
 }
 
 /**
@@ -934,6 +1011,58 @@ gtk_editable_set_enable_undo (GtkEditable *editable,
   g_object_set (editable, "enable-undo", enable_undo, NULL);
 }
 
+
+/**
+ * gtk_editable_set_input_interceptor:
+ * @editable: a `GtkEditable`
+ * @interceptor: (nullable): the input interceptor widget
+ *
+ * Sets @interceptor as the widget that @editable will intercept key events from.
+ *
+ * A typical usecase for this is implementing auto-showing search entries, so
+ * that textual input may be intercepted from another widget and handled first
+ * hand by the given editable. The events will be handled in the bubble phase
+ * of @interceptor, which means that editable child widgets of @interceptor will
+ * receive the text input before it can be captured.
+ *
+ * Only those events that would be handled by an input method will be handled,
+ * this excludes combinations of Ctrl/Alt/Mod, and other shortcuts.
+ *
+ * Since: 4.24
+ **/
+void
+gtk_editable_set_input_interceptor (GtkEditable *editable,
+                                    GtkWidget   *interceptor)
+{
+  g_return_if_fail (GTK_IS_EDITABLE (editable));
+  g_return_if_fail (!interceptor || GTK_IS_WIDGET (interceptor));
+
+  g_object_set (editable, "input-interceptor", interceptor, NULL);
+}
+
+/**
+ * gtk_editable_get_input_interceptor:
+ * @editable: a `GtkEditable`
+ *
+ * Retrieves the widget that was previously set up as input interceptor
+ * for @editable. See [method@Gtk.Editable.set_input_interceptor].
+ *
+ * Returns: (nullable) (transfer full): The editable widget
+ *
+ * Since: 4.24
+ **/
+GtkWidget *
+gtk_editable_get_input_interceptor (GtkEditable *editable)
+{
+  GtkWidget *interceptor;
+
+  g_return_val_if_fail (GTK_IS_EDITABLE (editable), NULL);
+
+  g_object_get (editable, "input-interceptor", &interceptor, NULL);
+
+  return interceptor;
+}
+
 /**
  * gtk_editable_install_properties:
  * @object_class: a `GObjectClass`
@@ -973,6 +1102,8 @@ gtk_editable_install_properties (GObjectClass *object_class,
   g_object_class_override_property (object_class, first_prop + GTK_EDITABLE_PROP_MAX_WIDTH_CHARS, "max-width-chars");
   g_object_class_override_property (object_class, first_prop + GTK_EDITABLE_PROP_XALIGN, "xalign");
   g_object_class_override_property (object_class, first_prop + GTK_EDITABLE_PROP_ENABLE_UNDO, "enable-undo");
+  g_object_class_override_property (object_class, first_prop + GTK_EDITABLE_PROP_COMPLETE_TEXT, "complete-text");
+  g_object_class_override_property (object_class, first_prop + GTK_EDITABLE_PROP_INPUT_INTERCEPTOR, "input-interceptor");
 
   return GTK_EDITABLE_NUM_PROPERTIES;
 }
@@ -982,6 +1113,13 @@ delegate_changed (GtkEditable *delegate,
                   gpointer     editable)
 {
   g_signal_emit (editable, signals[CHANGED], 0);
+}
+
+static void
+delegate_input_intercepted (GtkEditable *delegate,
+                            gpointer     editable)
+{
+  g_signal_emit (editable, signals[INPUT_INTERCEPTED], 0);
 }
 
 static void
@@ -1031,6 +1169,7 @@ gtk_editable_init_delegate (GtkEditable *editable)
   GtkEditable *delegate = get_delegate (editable);
   g_signal_connect (delegate, "notify", G_CALLBACK (delegate_notify), editable);
   g_signal_connect (delegate, "changed", G_CALLBACK (delegate_changed), editable);
+  g_signal_connect (delegate, "input-intercepted", G_CALLBACK (delegate_input_intercepted), editable);
 }
 
 /**
@@ -1048,6 +1187,7 @@ gtk_editable_finish_delegate (GtkEditable *editable)
   GtkEditable *delegate = get_delegate (editable);
   g_signal_handlers_disconnect_by_func (delegate, delegate_notify, editable);
   g_signal_handlers_disconnect_by_func (delegate, delegate_changed, editable);
+  g_signal_handlers_disconnect_by_func (delegate, delegate_input_intercepted, editable);
 }
 
 /**
@@ -1107,6 +1247,10 @@ gtk_editable_delegate_set_property (GObject      *object,
 
     case GTK_EDITABLE_PROP_ENABLE_UNDO:
       gtk_editable_set_enable_undo (delegate, g_value_get_boolean (value));
+      break;
+
+    case GTK_EDITABLE_PROP_INPUT_INTERCEPTOR:
+      gtk_editable_set_input_interceptor (delegate, g_value_get_object (value));
       break;
 
     default:
@@ -1184,6 +1328,14 @@ gtk_editable_delegate_get_property (GObject    *object,
 
     case GTK_EDITABLE_PROP_ENABLE_UNDO:
       g_value_set_boolean (value, gtk_editable_get_enable_undo (delegate));
+      break;
+
+    case GTK_EDITABLE_PROP_COMPLETE_TEXT:
+      g_value_take_string (value, gtk_editable_get_complete_text (delegate));
+      break;
+
+    case GTK_EDITABLE_PROP_INPUT_INTERCEPTOR:
+      g_value_take_object (value, gtk_editable_get_input_interceptor (delegate));
       break;
 
     default:

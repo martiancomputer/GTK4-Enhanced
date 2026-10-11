@@ -23,6 +23,7 @@
 #include "gskdiffprivate.h"
 #include "gskrectprivate.h"
 #include "gskrenderreplay.h"
+#include "gpu/gskgpuocclusionprivate.h"
 
 /* maximal number of rectangles we keep in a diff region before we throw
  * the towel and just use the bounding box of the parent node.
@@ -263,6 +264,7 @@ gsk_container_node_class_init (gpointer g_class,
   node_class->get_children = gsk_container_node_get_children;
   node_class->replay = gsk_container_node_replay;
   node_class->render_opacity = gsk_container_node_render_opacity;
+  node_class->occlusion = gsk_container_node_occlusion;
 }
 
 GSK_DEFINE_RENDER_NODE_TYPE (GskContainerNode, gsk_container_node)
@@ -296,6 +298,7 @@ gsk_container_node_new (GskRenderNode **children,
     {
       gsk_rect_init_from_rect (&node->bounds, graphene_rect_zero ());
       node->preferred_depth = GDK_MEMORY_NONE;
+      node->bilevel_opacity = TRUE;
     }
   else
     {
@@ -305,6 +308,7 @@ gsk_container_node_new (GskRenderNode **children,
       node->preferred_depth = children[0]->preferred_depth;
       gsk_rect_init_from_rect (&node->bounds, &(children[0]->bounds));
       node->is_hdr = gsk_render_node_is_hdr (children[0]);
+      node->bilevel_opacity = gsk_render_node_is_bilevel_opacity (children[0]);
       node->clears_background = gsk_render_node_clears_background (children[0]);
       node->copy_mode = gsk_render_node_get_copy_mode (children[0]);
       node->contains_subsurface_node = gsk_render_node_contains_subsurface_node (children[0]);
@@ -317,6 +321,7 @@ gsk_container_node_new (GskRenderNode **children,
           self->disjoint = self->disjoint && !gsk_rect_intersects (&node->bounds, &(children[i]->bounds));
           graphene_rect_union (&node->bounds, &(children[i]->bounds), &node->bounds);
           node->preferred_depth = gdk_memory_depth_merge (node->preferred_depth, children[i]->preferred_depth);
+          node->bilevel_opacity &= gsk_render_node_is_bilevel_opacity (children[i]);
           node->clears_background |= gsk_render_node_clears_background (children[i]);
           node->is_hdr |= gsk_render_node_is_hdr (children[i]);
           node->copy_mode = MAX (node->copy_mode, gsk_render_node_get_copy_mode (children[i]));

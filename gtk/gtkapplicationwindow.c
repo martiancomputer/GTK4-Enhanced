@@ -220,8 +220,7 @@ gtk_application_window_update_menubar (GtkApplicationWindow *window)
 
   if (have_menubar && !should_have_menubar)
     {
-      gtk_widget_unparent (priv->menubar);
-      priv->menubar = NULL;
+      g_clear_pointer (&priv->menubar, gtk_widget_unparent);
     }
 
   if (!have_menubar && should_have_menubar)
@@ -608,11 +607,7 @@ gtk_application_window_dispose (GObject *object)
   GtkApplicationWindow *window = GTK_APPLICATION_WINDOW (object);
   GtkApplicationWindowPrivate *priv = gtk_application_window_get_instance_private (window);
 
-  if (priv->menubar)
-    {
-      gtk_widget_unparent (priv->menubar);
-      priv->menubar = NULL;
-    }
+  g_clear_pointer (&priv->menubar, gtk_widget_unparent);
 
   g_clear_object (&priv->menubar_section);
 
@@ -703,7 +698,7 @@ gtk_application_window_class_init (GtkApplicationWindowClass *class)
    */
   gtk_application_window_properties[PROP_SHOW_MENUBAR] =
     g_param_spec_boolean ("show-menubar", NULL, NULL,
-                          FALSE, G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY);
+                          FALSE, G_PARAM_CONSTRUCT | G_PARAM_STATIC_NAME | G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY);
 
   g_object_class_install_properties (object_class, N_PROPS, gtk_application_window_properties);
 }
@@ -878,21 +873,11 @@ gtk_application_window_get_help_overlay (GtkApplicationWindow *window)
   return priv->help_overlay;
 }
 
-/*< private >
- * gtk_application_window_save:
- * @window: a `GtkApplicationWindow`
- * @state: a `GVariantDict` to add state to
- *
- * Save the state of @window and its children to a `GVariant`.
- *
- * See [signal@Gtk.ApplicationWindow::save-state] for how to override
- * what state is saved.
- */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-noreturn"
 void
-gtk_application_window_save (GtkApplicationWindow *window,
-                             GVariantDict         *state)
+gtk_application_window_save_state (GtkApplicationWindow *window,
+                                   GVariantDict         *state)
 {
   g_assert_not_reached ();
 }

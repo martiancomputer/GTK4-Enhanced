@@ -28,6 +28,7 @@ gtk_private_sources = files([
   'gtkallocatedbitmask.c',
   'gtkapplicationaccels.c',
   'gtkapplicationimpl.c',
+  'gtkarraylistmodel.c',
   'gtkbookmarksmanager.c',
   'gtkbuilder-menus.c',
   'gtkbuilderprecompile.c',
@@ -209,6 +210,7 @@ gtk_public_sources = files([
   'gtkcustomfilter.c',
   'gtkcustomlayout.c',
   'gtkcustomsorter.c',
+  'gtkdebug.c',
   'gtkdialogerror.c',
   'gtkdirectorylist.c',
   'gtkdragicon.c',
@@ -224,6 +226,7 @@ gtk_public_sources = files([
   'gtkemojicompletion.c',
   'gtkentry.c',
   'gtkentrybuffer.c',
+  'gtkenumlist.c',
   'gtkeventcontroller.c',
   'gtkeventcontrollerfocus.c',
   'gtkeventcontrollerkey.c',
@@ -373,7 +376,7 @@ gtk_public_sources = files([
   'gtkstringlist.c',
   'gtkstringsorter.c',
   'gtkstyleprovider.c',
-  'gtksvg.c',
+  'gtksvgwidget.c',
   'gtkswitch.c',
   'gtksymbolicpaintable.c',
   'gtktestatcontext.c',
@@ -485,6 +488,7 @@ gtk_public_headers = files([
   'gtkemojichooser.h',
   'gtkentry.h',
   'gtkentrybuffer.h',
+  'gtkenumlist.h',
   'gtkenums.h',
   'gtkeventcontroller.h',
   'gtkeventcontrollerfocus.h',
@@ -609,7 +613,7 @@ gtk_public_headers = files([
   'gtkstringlist.h',
   'gtkstringsorter.h',
   'gtkstyleprovider.h',
-  'gtksvg.h',
+  'gtksvgwidget.h',
   'gtkswitch.h',
   'gtksymbolicpaintable.h',
   'gtktestatcontext.h',
@@ -846,24 +850,6 @@ gtkprivatetypebuiltins = gnome.mkenums('gtkprivatetypebuiltins',
 
 gtkprivatetypebuiltins_h = gtkprivatetypebuiltins[1]
 
-# Generate gtktypefuncs.inc
-typefuncs = custom_target('gtktypefuncs.inc',
-  depends: [ gdkenum_h, gskenum_h, ],
-  output: 'gtktypefuncs.inc',
-  input: gdk_headers +
-    gsk_public_headers +
-    gtk_public_headers +
-    gtk_deprecated_headers +
-    [ gtktypebuiltins_h, ] +
-    [ gtk_css_enum_h, gdkenum_h, gskenum_h, ],
-  command: [
-    find_program('gentypefuncs.py'),
-    '@OUTPUT@',
-    '@INPUT@',
-  ],
-  install: false,
-)
-
 if os_win32
   xdp_dbus_generated = []
 else
@@ -1054,25 +1040,48 @@ darwin_versions = [
   '@0@.@1@'.format(1 + '@0@'.format(gtk_binary_age - gtk_interface_age).to_int(), gtk_interface_age),
 ]
 
+# this needs to happen after mkenums (since the svg code uses gtk enum types)
+subdir('svg')
+
+# Generate gtktypefuncs.inc
+typefuncs = custom_target('gtktypefuncs.inc',
+  depends: [ gdkenum_h, gskenum_h, ],
+  output: 'gtktypefuncs.inc',
+  input: gdk_headers +
+    gsk_public_headers +
+    gtk_public_headers +
+    gtk_svg_public_headers +
+    gtk_deprecated_headers +
+    [ gtktypebuiltins_h, ] +
+    [ gtk_css_enum_h, gdkenum_h, gskenum_h, ],
+  command: [
+    find_program('gentypefuncs.py'),
+    '@OUTPUT@',
+    '@INPUT@',
+  ],
+  install: false,
+)
+
 # Library
 libgtk_static = static_library('gtk',
   sources: [typefuncs, gtk_sources, gtkmarshal_h, gtkprivatetypebuiltins_h, xdp_dbus_generated],
   c_args: gtk_cargs + print_backend_cflags + common_cflags,
   include_directories: [confinc, gdkinc, gskinc, gtkinc],
-  dependencies: gtk_deps + [libgtk_css_dep, libgdk_dep, libgsk_dep, media_deps, print_backend_deps],
-  link_with: [libgtk_css, libgdk, libgsk ],
+  dependencies: gtk_deps + [libgtk_css_dep, libgtk_svg_dep, libgdk_dep, libgsk_dep, media_deps, print_backend_deps],
+  link_with: [libgtk_css, libgtk_svg, libgdk, libgsk ],
+  gnu_symbol_visibility: symbol_visibility,
 )
 
 libgtk = shared_library('gtk-4',
   c_args: gtk_cargs + common_cflags,
   include_directories: [confinc, gdkinc, gskinc, gtkinc],
-  dependencies: gtk_deps + [libgtk_css_dep, libgdk_dep, libgsk_dep],
-  link_whole: [libgtk_static, libgtk_css, libgdk, libgsk ],
+  dependencies: gtk_deps + [libgtk_css_dep, libgtk_svg_dep, libgdk_dep, libgsk_dep],
+  link_whole: [libgtk_static, libgtk_css, libgtk_svg, libgdk, libgsk ],
   link_args: common_ldflags,
   soversion: gtk_soversion,
   version: gtk_library_version,
   darwin_versions: darwin_versions,
-  gnu_symbol_visibility: 'hidden',
+  gnu_symbol_visibility: symbol_visibility,
   install: true,
 )
 
@@ -1219,6 +1228,9 @@ if build_gir
     gtk_print_headers,
     gtk_css_public_headers,
     gtk_css_public_sources,
+    gtk_svg_enum_h,
+    gtk_svg_public_headers,
+    gtk_svg_public_sources,
     gtk_deprecated_headers,
     gtk_deprecated_sources,
     gtktypebuiltins_h,
@@ -1253,16 +1265,23 @@ endif
 
 libgtk_dep = declare_dependency(sources: gtk_dep_sources,
   include_directories: [confinc, gtkinc],
-  dependencies: gtk_deps + [libgtk_css_dep, libgdk_dep, libgsk_dep],
+  dependencies: gtk_deps + [libgtk_css_dep, libgtk_svg_dep, libgdk_dep, libgsk_dep],
   link_with: libgtk,
   link_args: common_ldflags,
 )
 
 libgtk_static_dep = declare_dependency(sources: gtk_dep_sources,
   include_directories: [confinc, gtkinc],
-  dependencies: gtk_deps + [libgtk_css_dep, libgdk_dep, libgsk_dep],
+  compile_args: ['-DGDK_STATIC_COMPILATION'],
+  dependencies: gtk_deps + [libgtk_css_dep, libgtk_svg_dep, libgdk_dep, libgsk_dep],
   link_with: [libgtk_static, libgtk_css, libgdk, libgsk ],
   link_args: common_ldflags,
 )
+
+if get_option('symbol-visibility') == 'default'
+  libgtk_private_dep = libgtk_dep
+else
+  libgtk_private_dep = libgtk_static_dep
+endif
 
 subdir('compose')

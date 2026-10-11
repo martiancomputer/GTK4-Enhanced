@@ -38,6 +38,7 @@ tests = [
   { 'name': 'cssprovider' },
   { 'name': 'defaultvalue' },
   { 'name': 'entry' },
+  { 'name': 'enumlist' },
   { 'name': 'expression' },
   { 'name': 'filefilter' },
   { 'name': 'filter' },
@@ -122,6 +123,7 @@ internal_tests = [
   },
   { 'name': 'imcontext' },
   { 'name': 'constraint-solver' },
+  { 'name': 'constraint-vfl-parser' },
   { 'name': 'rbtree-crash' },
   { 'name': 'propertylookuplistmodel' },
   { 'name': 'rbtree' },
@@ -209,7 +211,7 @@ foreach t : internal_tests
     c_args: test_cargs + test_extra_cargs + ['-DGTK_COMPILATION'],
     link_args: test_extra_ldflags,
     link_with: test_extra_libs,
-    dependencies: libgtk_static_dep,
+    dependencies: libgtk_private_dep,
   )
 
   if test_extra_suites.contains('slow')
@@ -288,12 +290,3 @@ make_pot = find_program ('make-pot', dirs: meson.project_source_root())
 test('potfiles', make_pot,
      workdir: meson.project_source_root(),
      suite: ['gtk', 'translations' ])
-
-if host_machine.system() in ['linux']
-  test_link = find_program ('test-link')
-
-  test('rsvg', test_link,
-       args: [ libgtk.full_path() ],
-       workdir: meson.project_source_root(),
-       suite: ['gtk', 'gtk'])
-endif

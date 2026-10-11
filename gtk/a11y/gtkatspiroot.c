@@ -403,7 +403,7 @@ handle_accessible_get_property (GDBusConnection       *connection,
       res = g_variant_new_string (id ? id : "");
     }
   else if (g_strcmp0 (property_name, "Parent") == 0)
-    res = gtk_at_spi_null_ref ();
+    res = gtk_at_spi_root_get_parent_ref (self);
   else if (g_strcmp0 (property_name, "ChildCount") == 0)
     {
       guint n_toplevels = g_list_model_get_n_items (self->toplevels);
@@ -827,7 +827,7 @@ on_registration_reply (GObject      *gobject,
   self->can_use_event_listeners = true;
 }
 
-static gboolean
+static void
 root_register (gpointer user_data)
 {
   RegistrationData *data = user_data;
@@ -888,8 +888,6 @@ root_register (gpointer user_data)
                           NULL,
                           on_registration_reply,
                           data);
-
-  return G_SOURCE_REMOVE;
 }
 
 /*< private >
@@ -930,7 +928,7 @@ gtk_at_spi_root_queue_register (GtkAtSpiRoot             *self,
   data->root = self;
   data->register_func = func;
 
-  self->register_id = g_idle_add (root_register, data);
+  self->register_id = g_idle_add_once (root_register, data);
   gdk_source_set_static_name_by_id (self->register_id, "[gtk] ATSPI root registration");
 }
 
@@ -1043,7 +1041,7 @@ gtk_at_spi_root_class_init (GtkAtSpiRootClass *klass)
                          NULL,
                          G_PARAM_CONSTRUCT_ONLY |
                          G_PARAM_READWRITE |
-                         G_PARAM_STATIC_STRINGS);
+                         G_PARAM_STATIC_NAME);
 
   g_object_class_install_properties (gobject_class, N_PROPS, obj_props);
 }
@@ -1095,6 +1093,26 @@ gtk_at_spi_root_to_ref (GtkAtSpiRoot *self)
   return g_variant_new ("(so)",
                         g_dbus_connection_get_unique_name (self->connection),
                         self->root_path);
+}
+
+/*< private >
+ * gtk_at_spi_root_get_parent_ref:
+ * @self: a `GtkAtSpiRoot`
+ *
+ * Returns an AT-SPI object reference for the parent of the root,
+ * which is the desktop accessible.
+ *
+ * Returns: a `GVariant` with the parent reference
+ */
+GVariant *
+gtk_at_spi_root_get_parent_ref (GtkAtSpiRoot *self)
+{
+  g_return_val_if_fail (GTK_IS_AT_SPI_ROOT (self), gtk_at_spi_null_ref ());
+
+  if (self->desktop_name != NULL && self->desktop_path != NULL)
+    return g_variant_new ("(so)", self->desktop_name, self->desktop_path);
+
+  return gtk_at_spi_null_ref ();
 }
 
 const char *

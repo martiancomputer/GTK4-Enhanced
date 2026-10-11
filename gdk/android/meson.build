@@ -6,6 +6,7 @@ gdk_android_sources = files([
   'gdkandroidsurface.c',
   'gdkandroidtoplevel.c',
   'gdkandroidpopup.c',
+  'gdkandroidchoreographersource.c',
   'gdkandroidcairocontext.c',
   'gdkandroidclipboard.c',
   'gdkandroiddnd.c',
@@ -54,4 +55,5 @@ libgdk_android = static_library('gdk-android',
   include_directories: [ confinc, gdkinc, ],
   c_args: [ libgdk_c_args, common_cflags, ],
   dependencies: [ gdk_deps, gdk_android_deps ],
+  gnu_symbol_visibility: symbol_visibility,
 )

@@ -80,11 +80,8 @@ typedef struct _GtkCssDimensionToken GtkCssDimensionToken;
 
 struct _GtkCssStringToken {
   GtkCssTokenType  type;
-  int len;
-  union {
-    char             buf[16];
-    char            *string;
-  } u;
+  char            *string;
+  char             buf[16];
 };
 
 struct _GtkCssDelimToken {
@@ -114,10 +111,7 @@ union _GtkCssToken {
 static inline const char *
 gtk_css_token_get_string (const GtkCssToken *token)
 {
-  if (token->string.len < 16)
-    return token->string.u.buf;
-  else
-    return token->string.u.string;
+  return token->string.string;
 }
 
 void                    gtk_css_token_clear                     (GtkCssToken            *token);
@@ -146,7 +140,7 @@ GtkCssTokenizer *       gtk_css_tokenizer_ref                   (GtkCssTokenizer
 void                    gtk_css_tokenizer_unref                 (GtkCssTokenizer        *tokenizer);
 
 GBytes *                gtk_css_tokenizer_get_bytes             (GtkCssTokenizer        *tokenizer);
-const GtkCssLocation *  gtk_css_tokenizer_get_location          (GtkCssTokenizer        *tokenizer) G_GNUC_CONST;
+const GtkCssLocation *  gtk_css_tokenizer_get_location          (GtkCssTokenizer        *tokenizer);
 
 gboolean                gtk_css_tokenizer_read_token            (GtkCssTokenizer        *tokenizer,
                                                                  GtkCssToken            *token,

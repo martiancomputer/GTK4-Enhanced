@@ -37,7 +37,7 @@
 #include "gtkactionable.h"
 #include "gtkeventcontrollerkey.h"
 #include "gtkaccessible.h"
-#include "gtksvg.h"
+#include "svg/gtksvg.h"
 #include "gtkimage.h"
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
@@ -152,7 +152,9 @@ dialog_forward_key (GtkEventControllerKey *controller,
 {
   GtkFontChooserDialog *dialog = GTK_FONT_CHOOSER_DIALOG (widget);
 
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
   return gtk_event_controller_key_forward (controller, dialog->fontchooser);
+  G_GNUC_END_IGNORE_DEPRECATIONS
 }
 
 static void

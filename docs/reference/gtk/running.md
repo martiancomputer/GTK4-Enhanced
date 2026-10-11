@@ -267,9 +267,6 @@ A number of options affect behavior instead of logging:
 `color-mgmt`
 : Enable color management
 
-`session-mgmt`
-: Enable session management
-
 The special value `all` can be used to turn on all debug options. The special
 value `help` can be used to obtain a list of all supported debug options.
 
@@ -391,9 +388,6 @@ disable certain features.
 
 `threads`
 : Disable threads where possible
-
-`icon-nodes`
-: Disable the svg-to-node conversion for symbolic icons
 
 ### `GDK_GL_DISABLE`
 

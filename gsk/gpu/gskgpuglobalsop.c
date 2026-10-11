@@ -6,6 +6,7 @@
 #include "gskgpuframeprivate.h"
 #include "gskgpuprintprivate.h"
 #include "gskroundedrectprivate.h"
+#include "gskrectprivate.h"
 #ifdef GDK_RENDERING_VULKAN
 #include "gskvulkandeviceprivate.h"
 #include "gskvulkanframeprivate.h"
@@ -39,6 +40,11 @@ gsk_gpu_globals_op_print (GskGpuOp    *op,
   g_string_append_printf (string, "scale %g %g ", instance->scale[0], instance->scale[1]);
   g_string_append (string, "clip ");
   gsk_gpu_print_rounded_rect (string, instance->clip);
+  if (instance->clip_mask_rect[2] > 0 && instance->clip_mask_rect[3])
+    {
+      g_string_append (string, "mask ");
+      gsk_gpu_print_rect (string, instance->clip_mask_rect);
+    }
   gsk_gpu_print_newline (string);
 }
 
@@ -49,13 +55,16 @@ gsk_gpu_globals_op_vk_command (GskGpuOp              *op,
                                GskVulkanCommandState *state)
 {
   GskGpuGlobalsOp *self = (GskGpuGlobalsOp *) op;
+  GskVulkanDevice *device = GSK_VULKAN_DEVICE (gsk_gpu_frame_get_device (frame));
+  VkPipelineLayout layout = gsk_vulkan_device_get_default_vk_pipeline_layout (device);
 
-  vkCmdPushConstants (state->vk_command_buffer,
-                      gsk_vulkan_device_get_default_vk_pipeline_layout (GSK_VULKAN_DEVICE (gsk_gpu_frame_get_device (frame))),
-                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                      0,
-                      sizeof (self->instance),
-                      &self->instance);
+  vkCmdBindDescriptorSets (state->vk_command_buffer,
+                           VK_PIPELINE_BIND_POINT_GRAPHICS,
+                           layout,
+                           3, 1, &state->vk_globals_descriptor_set,
+                           1, (uint32_t[1]) {
+                               self->id * gsk_gpu_device_get_globals_aligned_size (GSK_GPU_DEVICE (device))
+                           });
 
   return op->next;
 }
@@ -92,16 +101,19 @@ static const GskGpuOpClass GSK_GPU_GLOBALS_OP_CLASS = {
 
 void
 gsk_gpu_globals_op (GskGpuFrame             *frame,
-                    const graphene_vec2_t   *scale,
+                    const graphene_size_t   *scale,
                     const graphene_matrix_t *mvp,
+                    const graphene_rect_t   *clip_mask_rect,
                     const GskRoundedRect    *clip)
 {
   GskGpuGlobalsOp *self;
 
   self = (GskGpuGlobalsOp *) gsk_gpu_frame_alloc_op (frame, &GSK_GPU_GLOBALS_OP_CLASS);
 
+  self->instance.scale[0] = scale->width;
+  self->instance.scale[1] = scale->height;
   graphene_matrix_to_float (mvp, self->instance.mvp);
   gsk_rounded_rect_to_float (clip, graphene_point_zero (), self->instance.clip);
-  graphene_vec2_to_float (scale, self->instance.scale);
+  gsk_gpu_rect_to_float (clip_mask_rect, graphene_point_zero (), self->instance.clip_mask_rect);
   self->id = gsk_gpu_frame_add_globals (frame, &self->instance);
 }

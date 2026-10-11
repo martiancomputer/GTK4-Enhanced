@@ -9,6 +9,7 @@
 #include "gskglbufferprivate.h"
 #include "gskgldeviceprivate.h"
 #include "gskglimageprivate.h"
+#include "gskglpipelineprivate.h"
 
 #include "gdkdmabuftextureprivate.h"
 #include "gdkdmabufeglprivate.h"
@@ -67,6 +68,7 @@ gsk_gl_frame_cleanup (GskGpuFrame *frame)
       glClientWaitSync (self->sync, GL_SYNC_FLUSH_COMMANDS_BIT, G_MAXUINT64);
 
       /* can't use g_clear_pointer() on glDeleteSync(), see MR !7294 */
+      /* gobject-linter-ignore-next-line: use_clear_functions */
       glDeleteSync (self->sync);
       self->sync = NULL;
     }
@@ -312,6 +314,8 @@ gsk_gl_frame_submit (GskGpuFrame       *frame,
   glDisable (GL_DEPTH_TEST);
   glEnable (GL_BLEND);
 
+  glGenFramebuffers (G_N_ELEMENTS (state.fbos), state.fbos);
+
   if (vertex_buffer)
     gsk_gl_buffer_bind (GSK_GL_BUFFER (vertex_buffer));
 
@@ -321,6 +325,8 @@ gsk_gl_frame_submit (GskGpuFrame       *frame,
     }
 
   self->sync = glFenceSync (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+  glDeleteFramebuffers (G_N_ELEMENTS (state.fbos), state.fbos);
 }
 
 static void
@@ -373,11 +379,11 @@ gsk_gl_frame_use_program (GskGLFrame                *self,
 {
   GLuint vao;
 
-  gsk_gl_device_use_program (GSK_GL_DEVICE (gsk_gpu_frame_get_device (GSK_GPU_FRAME (self))),
-                             op_class,
-                             flags,
-                             color_states,
-                             variation);
+  gsk_gl_pipeline_use (GSK_GL_DEVICE (gsk_gpu_frame_get_device (GSK_GPU_FRAME (self))),
+                       op_class,
+                       flags,
+                       color_states,
+                       variation);
 
   vao = GPOINTER_TO_UINT (g_hash_table_lookup (self->vaos, op_class));
   if (vao)

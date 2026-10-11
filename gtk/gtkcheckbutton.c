@@ -36,6 +36,7 @@
 #include "gtkshortcuttrigger.h"
 #include "gtkcssnodeprivate.h"
 #include "gtkwidgetprivate.h"
+#include <gdk/gdkkeysyms.h>
 
 /**
  * GtkCheckButton:
@@ -134,11 +135,10 @@ enum {
   PROP_INCONSISTENT,
   PROP_USE_UNDERLINE,
   PROP_CHILD,
-
-  /* actionable properties */
+  /* GtkActionable */
   PROP_ACTION_NAME,
   PROP_ACTION_TARGET,
-  LAST_PROP = PROP_ACTION_NAME
+  LAST_PROP
 };
 
 enum {
@@ -425,6 +425,30 @@ update_accessible_state (GtkCheckButton *check_button)
                                -1);
 }
 
+static void
+update_accessible_mnemonic (GtkCheckButton *check_button)
+{
+  GtkCheckButtonPrivate *priv = gtk_check_button_get_instance_private (check_button);
+
+  if (priv->child_type == LABEL_CHILD && priv->child != NULL && priv->use_underline)
+    {
+      guint keyval = gtk_label_get_mnemonic_keyval (GTK_LABEL (priv->child));
+      if (keyval != GDK_KEY_VoidSymbol)
+        {
+          const char *name = gdk_keyval_name (gdk_keyval_to_upper (keyval));
+          char *shortcut = g_strdup_printf ("Alt+%s", name);
+          gtk_accessible_update_property (GTK_ACCESSIBLE (check_button),
+                                          GTK_ACCESSIBLE_PROPERTY_KEY_SHORTCUTS, shortcut,
+                                          -1);
+          g_free (shortcut);
+          return;
+        }
+    }
+
+  /* No mnemonic - clear the property */
+  gtk_accessible_reset_property (GTK_ACCESSIBLE (check_button),
+                                 GTK_ACCESSIBLE_PROPERTY_KEY_SHORTCUTS);
+}
 
 static GtkCheckButton *
 get_group_next (GtkCheckButton *self)
@@ -606,16 +630,10 @@ gtk_check_button_real_activate (GtkCheckButton *self)
 static void
 gtk_check_button_class_init (GtkCheckButtonClass *class)
 {
-  const guint activate_keyvals[] = {
-    GDK_KEY_space,
-    GDK_KEY_KP_Space,
-    GDK_KEY_Return,
-    GDK_KEY_ISO_Enter,
-    GDK_KEY_KP_Enter
-  };
   GObjectClass *object_class = G_OBJECT_CLASS (class);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (class);
-  GtkShortcutAction *activate_action;
+  GtkShortcutTrigger *trigger;
+  GtkShortcut *activate_shortcut;
 
   object_class->dispose = gtk_check_button_dispose;
   object_class->set_property = gtk_check_button_set_property;
@@ -637,7 +655,7 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_ACTIVE] =
       g_param_spec_boolean ("active", NULL, NULL,
                             FALSE,
-                            GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY);
+                            G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY);
 
   /**
    * GtkCheckButton:group:
@@ -647,7 +665,7 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_GROUP] =
       g_param_spec_object ("group", NULL, NULL,
                            GTK_TYPE_CHECK_BUTTON,
-                           GTK_PARAM_WRITABLE);
+                           G_PARAM_WRITABLE | G_PARAM_STATIC_NAME);
 
   /**
    * GtkCheckButton:label:
@@ -657,7 +675,7 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_LABEL] =
     g_param_spec_string ("label", NULL, NULL,
                          NULL,
-                         GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY);
+                         G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY);
 
   /**
    * GtkCheckButton:inconsistent:
@@ -670,7 +688,7 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_INCONSISTENT] =
       g_param_spec_boolean ("inconsistent", NULL, NULL,
                             FALSE,
-                            GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY);
+                            G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY);
 
   /**
    * GtkCheckButton:use-underline:
@@ -681,7 +699,7 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_USE_UNDERLINE] =
       g_param_spec_boolean ("use-underline", NULL, NULL,
                             FALSE,
-                            GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY);
+                            G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY);
 
   /**
    * GtkCheckButton:child:
@@ -693,12 +711,14 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
   props[PROP_CHILD] =
       g_param_spec_object ("child", NULL, NULL,
                            GTK_TYPE_WIDGET,
-                           GTK_PARAM_READWRITE|G_PARAM_EXPLICIT_NOTIFY);
+                           G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_EXPLICIT_NOTIFY);
+
+  props[PROP_ACTION_NAME] = g_param_spec_override ("action-name",
+      g_object_interface_find_property (g_type_default_interface_ref (GTK_TYPE_ACTIONABLE), "action-name"));
+  props[PROP_ACTION_TARGET] = g_param_spec_override ("action-target",
+      g_object_interface_find_property (g_type_default_interface_ref (GTK_TYPE_ACTIONABLE), "action-target"));
 
   g_object_class_install_properties (object_class, LAST_PROP, props);
-
-  g_object_class_override_property (object_class, PROP_ACTION_NAME, "action-name");
-  g_object_class_override_property (object_class, PROP_ACTION_TARGET, "action-target");
 
   /**
    * GtkCheckButton::toggled:
@@ -743,16 +763,11 @@ gtk_check_button_class_init (GtkCheckButtonClass *class)
 
   gtk_widget_class_set_activate_signal (widget_class, signals[ACTIVATE]);
 
-  activate_action = gtk_signal_action_new ("activate");
-  for (guint i = 0; i < G_N_ELEMENTS (activate_keyvals); i++)
-    {
-      GtkShortcut *activate_shortcut = gtk_shortcut_new (gtk_keyval_trigger_new (activate_keyvals[i], 0),
-                                                         g_object_ref (activate_action));
-
-      gtk_widget_class_add_shortcut (widget_class, activate_shortcut);
-      g_object_unref (activate_shortcut);
-    }
-  g_object_unref (activate_action);
+  trigger = gtk_alternative_trigger_new (gtk_shortcut_trigger_create_with_aliases (GDK_KEY_Return, 0),
+                                         gtk_shortcut_trigger_create_with_aliases (GDK_KEY_space, 0));
+  activate_shortcut = gtk_shortcut_new (trigger, gtk_signal_action_new ("activate"));
+  gtk_widget_class_add_shortcut (widget_class, activate_shortcut);
+  g_object_unref (activate_shortcut);
 
   gtk_widget_class_set_layout_manager_type (widget_class, GTK_TYPE_BOX_LAYOUT);
   gtk_widget_class_set_css_name (widget_class, I_("checkbutton"));
@@ -1040,6 +1055,8 @@ gtk_check_button_set_label (GtkCheckButton *self,
                                       -1);
     }
 
+  update_accessible_mnemonic (self);
+
   g_object_notify_by_pspec (G_OBJECT (self), props[PROP_LABEL]);
 
   g_object_thaw_notify (G_OBJECT (self));
@@ -1172,7 +1189,16 @@ gtk_check_button_set_use_underline (GtkCheckButton *self,
 
   priv->use_underline = setting;
   if (priv->child_type == LABEL_CHILD && priv->child != NULL)
-    gtk_label_set_use_underline (GTK_LABEL (priv->child), priv->use_underline);
+    {
+      gtk_label_set_use_underline (GTK_LABEL (priv->child), priv->use_underline);
+
+      const char *text = gtk_label_get_text (GTK_LABEL (priv->child));
+      gtk_accessible_update_property (GTK_ACCESSIBLE (self),
+                                      GTK_ACCESSIBLE_PROPERTY_LABEL, text,
+                                      -1);
+    }
+
+  update_accessible_mnemonic (self);
 
   g_object_notify_by_pspec (G_OBJECT (self), props[PROP_USE_UNDERLINE]);
 }
@@ -1209,6 +1235,8 @@ gtk_check_button_set_child (GtkCheckButton *button,
   gtk_widget_remove_css_class (GTK_WIDGET (button), "text-button");
 
   gtk_check_button_real_set_child (button, child, WIDGET_CHILD);
+
+  update_accessible_mnemonic (button);
 
   g_object_notify_by_pspec (G_OBJECT (button), props[PROP_CHILD]);
 

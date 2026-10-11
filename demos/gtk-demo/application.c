@@ -23,7 +23,7 @@ typedef GtkApplicationWindowClass DemoApplicationWindowClass;
 static GType demo_application_window_get_type (void);
 G_DEFINE_TYPE (DemoApplicationWindow, demo_application_window, GTK_TYPE_APPLICATION_WINDOW)
 
-static DemoApplicationWindow *create_demo_window (GApplication *app, const char *contents);
+static GtkWindow *create_demo_window (GtkApplication *app, const char *contents);
 
 static void
 show_action_dialog (GSimpleAction *action)
@@ -69,12 +69,11 @@ activate_new (GSimpleAction *action,
               GVariant      *parameter,
               gpointer       user_data)
 {
-  GApplication *app = user_data;
-  DemoApplicationWindow *window;
+  GtkApplication *app = GTK_APPLICATION (user_data);
+  GtkWindow *window;
 
   window = create_demo_window (app, NULL);
-
-  gtk_window_present (GTK_WINDOW (window));
+  gtk_window_present (window);
 }
 
 static void
@@ -83,7 +82,7 @@ open_response_cb (GObject *source,
                   gpointer user_data)
 {
   GtkFileDialog *dialog = GTK_FILE_DIALOG (source);
-  GApplication *app = G_APPLICATION (user_data);
+  GtkApplication *app = GTK_APPLICATION (user_data);
   GFile *file;
   GError *error = NULL;
 
@@ -94,10 +93,8 @@ open_response_cb (GObject *source,
 
       if (g_file_load_contents (file, NULL, &contents, NULL, NULL, &error))
         {
-          DemoApplicationWindow *window;
-
-          window = create_demo_window (app, contents);
-          gtk_window_present (GTK_WINDOW (window));
+          GtkWindow *window = create_demo_window (app, contents);
+          gtk_window_present (window);
           g_free (contents);
         }
     }
@@ -350,9 +347,9 @@ startup (GApplication *app)
   g_object_unref (builder);
 }
 
-static DemoApplicationWindow *
-create_demo_window (GApplication *app,
-                    const char   *content)
+static GtkWindow *
+create_demo_window (GtkApplication *app,
+                    const char     *content)
 {
   DemoApplicationWindow *window;
 
@@ -360,16 +357,24 @@ create_demo_window (GApplication *app,
                                                   "application", app,
                                                   "show-menubar", TRUE,
                                                   NULL);
+
   if (content)
     gtk_text_buffer_set_text (window->buffer, content, -1);
 
-  return window;
+  return GTK_WINDOW (window);
 }
 
 static void
-activate (GApplication *app)
+activate (GApplication *gapp)
 {
-  create_demo_window (app, NULL);
+  GtkApplication *app = GTK_APPLICATION (gapp);
+  GtkWindow *window;
+
+  window = gtk_application_get_active_window (app);
+  if (!window)
+    window = create_demo_window (app, NULL);
+
+  gtk_window_present (window);
 }
 
 static void

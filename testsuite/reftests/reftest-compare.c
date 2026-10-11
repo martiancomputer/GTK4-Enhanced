@@ -94,6 +94,12 @@ memory_format_is_high_depth (GdkMemoryFormat format)
     case GDK_MEMORY_G16_B16_R16_420:
     case GDK_MEMORY_G16_B16_R16_422:
     case GDK_MEMORY_G16_B16_R16_444:
+    case GDK_MEMORY_ARGB2101010_PREMULTIPLIED:
+    case GDK_MEMORY_ARGB2101010:
+    case GDK_MEMORY_XRGB2101010:
+    case GDK_MEMORY_ABGR2101010_PREMULTIPLIED:
+    case GDK_MEMORY_ABGR2101010:
+    case GDK_MEMORY_XBGR2101010:
       return TRUE;
 
     case GDK_MEMORY_N_FORMATS:
@@ -117,7 +123,8 @@ buffer_diff_u8 (GdkColorState *color_state,
                 const guchar  *buf_b,
                 gsize          stride_b,
                 int            width,
-                int            height)
+                int            height,
+                int            tolerance)
 {
   int x, y;
   guchar *buf_diff = NULL;
@@ -134,14 +141,23 @@ buffer_diff_u8 (GdkColorState *color_state,
         {
           int channel;
           guint32 diff_pixel = 0;
-
-          /* check if the pixels are the same */
-          if (row_a[x] == row_b[x])
-            continue;
+          unsigned int dist;
 
           /* even if they're not literally the same, fully-transparent
-           * pixels are effectively the same regardless of colour */
+           * pixels are effectively the same regardless of colour
+           */
           if ((row_a[x] & 0xff000000) == 0 && (row_b[x] & 0xff000000) == 0)
+            continue;
+
+          /* check if the pixels are the same */
+          dist = 0;
+          for (channel = 0; channel < 3; channel++)
+            {
+              int value_a = (row_a[x] >> (channel*8)) & 0xff;
+              int value_b = (row_b[x] >> (channel*8)) & 0xff;
+              dist = MAX (dist, abs (value_a - value_b));
+            }
+          if (dist < tolerance + 1)
             continue;
 
           if (diff == NULL)
@@ -207,7 +223,8 @@ buffer_diff_float (GdkColorState *color_state,
                    const guchar  *buf_b,
                    int            stride_b,
                    int            width,
-                   int            height)
+                   int            height,
+                   int            tolerance)
 {
   int x, y;
   guchar *buf_diff = NULL;
@@ -223,18 +240,24 @@ buffer_diff_float (GdkColorState *color_state,
       for (x = 0; x < width; x++)
         {
           int channel;
-
-          /* check if the pixels are the same */
-          if (G_APPROX_VALUE (row_a[4 * x + 0], row_b[4 * x + 0], 1. / 255) &&
-              G_APPROX_VALUE (row_a[4 * x + 1], row_b[4 * x + 1], 1. / 255) &&
-              G_APPROX_VALUE (row_a[4 * x + 2], row_b[4 * x + 2], 1. / 255) &&
-              G_APPROX_VALUE (row_a[4 * x + 3], row_b[4 * x + 3], 1. / 255))
-            continue;
+          float dist;
 
           /* even if they're not literally the same, fully-transparent
-           * pixels are effectively the same regardless of colour */
+           * pixels are effectively the same regardless of color
+           */
           if (G_APPROX_VALUE (row_a[4 * x + 3], 0.0, 1. / 255) &&
               G_APPROX_VALUE (row_b[4 * x + 3], 0.0, 1. / 255))
+            continue;
+
+          /* check if the pixels are the same */
+          dist = 0;
+          for (channel = 0; channel < 3; channel++)
+            {
+              float value_a = row_a[4 * x + channel];
+              float value_b = row_b[4 * x + channel];
+              dist = MAX (dist, fabs (value_a - value_b));
+            }
+          if (dist * 255 < tolerance + 1)
             continue;
 
           if (diff == NULL)
@@ -290,9 +313,31 @@ buffer_diff_float (GdkColorState *color_state,
   return diff;
 }
 
+/**< private >
+ * reftest_compare_textures_with_tolerance:
+ * @texture1: first texture
+ * @texture2: second texture
+ * @tolerance: the tolerance to apply
+ *
+ * Compares two textures for equality.
+ *
+ * The tolerance is applied per color channel,
+ * i.e. color channel values must be strictly less
+ * than @tolerance + 1 apart. For floating point
+ * textures, the tolerance is interpreted as 1/255th.
+ *
+ * A tolerance of 0 means that 8bit textures will
+ * be compared for exact equality, while floating
+ * point textures' channel values are required to
+ * be closer together than 1/255.
+ *
+ * Returns (nullable): If the textures are not considered
+ *   equal, a texture collecting the (magnified) differences.
+ */
 GdkTexture *
-reftest_compare_textures (GdkTexture *texture1,
-                          GdkTexture *texture2)
+reftest_compare_textures_with_tolerance (GdkTexture *texture1,
+                                         GdkTexture *texture2,
+                                         int         tolerance)
 {
   int w, h, stride;
   guchar *data1, *data2;
@@ -320,9 +365,9 @@ reftest_compare_textures (GdkTexture *texture1,
       stride = w *  4 * sizeof (float);
     }
 
-  data1 = g_malloc_n (stride, h);
+  data1 = g_malloc0_n (stride, h);
   gdk_texture_downloader_download_into (downloader, data1, stride);
-  data2 = g_malloc_n (stride, h);
+  data2 = g_malloc0_n (stride, h);
   gdk_texture_downloader_set_texture (downloader, texture2);
   gdk_texture_downloader_download_into (downloader, data2, stride);
 
@@ -331,18 +376,28 @@ reftest_compare_textures (GdkTexture *texture1,
       diff = buffer_diff_float (color_state,
                                 data1, stride,
                                 data2, stride,
-                                w, h);
+                                w, h,
+                                tolerance);
     }
   else
     {
       diff = buffer_diff_u8 (color_state,
                              data1, stride,
                              data2, stride,
-                             w, h);
+                             w, h,
+                             tolerance);
     }
 
+  gdk_texture_downloader_free (downloader);
   g_free (data1);
   g_free (data2);
 
   return diff;
+}
+
+GdkTexture *
+reftest_compare_textures (GdkTexture *texture1,
+                          GdkTexture *texture2)
+{
+  return reftest_compare_textures_with_tolerance (texture1, texture2, 0);
 }

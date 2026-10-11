@@ -113,12 +113,14 @@ typedef struct
     jmethodID get_content_resolver;
     jmethodID get_system_service;
     jmethodID get_resources;
+    jmethodID get_color;
     jstring activity_service;
     jstring clipboard_service;
   } a_context;
   struct
   {
     jclass klass;
+    jstring scheme_content;
     jmethodID get_type;
     jmethodID open_asset_fd;
     jmethodID open_typed_asset_fd;
@@ -191,6 +193,11 @@ typedef struct
     jint ui_night_no;
     jint ui_night_yes;
   } a_configuration;
+  struct
+  {
+    jclass klass;
+    jint system_accent1_600;
+  } a_res_color;
   struct
   {
     jclass klass;

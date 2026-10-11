@@ -28,7 +28,7 @@
 
 G_BEGIN_DECLS
 
-/**<private>
+/*<private>
  * GtkRestoreReason:
  * @GTK_RESTORE_REASON_PRISTINE: Don't restore anything
  * @GTK_RESTORE_REASON_LAUNCH: This is normal launch. Restore as little as is reasonable
@@ -39,7 +39,7 @@ G_BEGIN_DECLS
  *
  * See [signal@Gtk.Application::restore-state].
  *
- * Since: 4.22
+ * Since: 4.24
  */
 typedef enum
 {

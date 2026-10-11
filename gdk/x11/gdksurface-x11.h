@@ -36,9 +36,9 @@
 
 G_BEGIN_DECLS
 
-GType gdk_x11_toplevel_get_type (void) G_GNUC_CONST;
-GType gdk_x11_popup_get_type (void) G_GNUC_CONST;
-GType gdk_x11_drag_surface_get_type (void) G_GNUC_CONST;
+GType gdk_x11_toplevel_get_type (void);
+GType gdk_x11_popup_get_type (void);
+GType gdk_x11_drag_surface_get_type (void);
 
 #define GDK_TYPE_X11_TOPLEVEL (gdk_x11_toplevel_get_type ())
 #define GDK_TYPE_X11_POPUP (gdk_x11_popup_get_type ())
@@ -62,6 +62,7 @@ struct _GdkX11Surface
   guint frame_clock_connected : 1;
   guint frame_sync_enabled : 1;
   guint tracking_damage: 1;
+  guint popup_grab : 1;
 
   int surface_scale;
 
@@ -194,10 +195,6 @@ struct _GdkToplevelX11
 				 * ConfigureNotify
 				 */
   gint64 current_counter_value;
-
-  /* After a _NET_WM_FRAME_DRAWN message, this is the soonest that we think
-   * frame after will be presented */
-  gint64 throttled_presentation_time;
 #endif
 };
 

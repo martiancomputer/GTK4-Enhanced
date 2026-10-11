@@ -532,8 +532,7 @@ gtk_tree_store_finalize (GObject *object)
       GDestroyNotify d = priv->default_sort_destroy;
 
       priv->default_sort_destroy = NULL;
-      d (priv->default_sort_data);
-      priv->default_sort_data = NULL;
+      g_clear_pointer (&priv->default_sort_data, d);
     }
 
   /* must chain up */
@@ -2202,8 +2201,7 @@ gtk_tree_store_drag_data_received (GtkTreeDragDest *drag_dest,
                                        parent);
               dest_parent_p = &dest_parent;
             }
-          gtk_tree_path_free (parent);
-          parent = NULL;
+          g_clear_pointer (&parent, gtk_tree_path_free);
 
           gtk_tree_store_prepend (tree_store,
                                   &dest_iter,

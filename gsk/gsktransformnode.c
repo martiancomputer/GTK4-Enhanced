@@ -24,6 +24,8 @@
 #include "gskrenderreplay.h"
 #include "gskrectprivate.h"
 #include "gsktransformprivate.h"
+#include "gpu/gskgpuocclusionprivate.h"
+#include "gpu/gskgpurenderpassprivate.h"
 
 #include "gdk/gdkcairoprivate.h"
 #include "gdk/gdkcolorprivate.h"
@@ -149,7 +151,7 @@ gsk_transform_node_diff (GskRenderNode *node1,
       {
         float dx, dy;
         gsk_transform_to_translate (self1->transform, &dx, &dy);
-        if (floorf (dx) == dx && floorf (dy) != dy)
+        if (floorf (dx) == dx && floorf (dy) == dy)
           {
             cairo_region_translate (data->region, -dx, -dy);
             gsk_render_node_diff (self1->child, self2->child, data);
@@ -253,6 +255,27 @@ gsk_transform_node_render_opacity (GskRenderNode  *node,
     gsk_transform_transform_bounds (self->transform, &data->opaque, &data->opaque);
 }
 
+static GskGpuRenderPass *
+gsk_transform_node_occlusion (GskRenderNode   *node,
+                              GskGpuOcclusion *occlusion)
+{
+  GskTransformNode *self = (GskTransformNode *) node;
+  GskGpuTransform saved_transform;
+  GskGpuRenderPass *result;
+
+  if (!gsk_gpu_occlusion_push_transform (occlusion, self->transform, &saved_transform))
+    return NULL;
+
+  result = gsk_gpu_occlusion_try_node (occlusion, self->child, 0);
+
+  gsk_gpu_occlusion_pop_transform (occlusion, &saved_transform);
+
+  if (result)
+    gsk_gpu_render_pass_set_transform (result, &saved_transform);
+
+  return result;
+}
+
 static void
 gsk_transform_node_class_init (gpointer g_class,
                                gpointer class_data)
@@ -268,6 +291,7 @@ gsk_transform_node_class_init (gpointer g_class,
   node_class->get_children = gsk_transform_node_get_children;
   node_class->replay = gsk_transform_node_replay;
   node_class->render_opacity = gsk_transform_node_render_opacity;
+  node_class->occlusion = gsk_transform_node_occlusion;
 }
 
 GSK_DEFINE_RENDER_NODE_TYPE (GskTransformNode, gsk_transform_node)
@@ -296,7 +320,8 @@ gsk_transform_node_new (GskRenderNode *child,
 
   self = gsk_render_node_alloc (GSK_TYPE_TRANSFORM_NODE);
   node = (GskRenderNode *) self;
-  node->fully_opaque = child->fully_opaque && category >= GSK_TRANSFORM_CATEGORY_2D_AFFINE;
+  node->fully_opaque = gsk_render_node_is_fully_opaque (child) && category >= GSK_TRANSFORM_CATEGORY_2D_AFFINE;
+  node->bilevel_opacity = gsk_render_node_is_bilevel_opacity (child);
 
   self->child = gsk_render_node_ref (child);
   self->transform = gsk_transform_ref (transform);

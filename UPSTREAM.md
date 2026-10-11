@@ -1,15 +1,15 @@
 # Upstream source baseline
 
-GTK4-Enhanced starts from GTK **4.22.4** source, with the import selection and
+GTK4-Enhanced is based on GTK **4.24.1** source, with the import selection and
 privacy sanitization described below. This is not a GNOME release or a compatibility
 certification of the enhanced fork.
 
 - Canonical repository: https://gitlab.gnome.org/GNOME/gtk
 - Import transport: https://github.com/GNOME/gtk (GNOME's read-only mirror)
-- Tag: `4.22.4`
-- Annotated tag object: `442df0886e47cd15ecbdd267e706d08ea517eada`
-- Source commit: `7f99ab1a26408b6499a18f353f081e3c0598ea5c`
-- Maintenance series: `gtk-4-22`
+- Tag: `4.24.1`
+- Annotated tag object: `02b85fda7f2078b601774bef3e5c0daddca12b2a`
+- Source commit: `2ea935e3ec680fb122f245b28e18c3495df8c344`
+- Maintenance series: `gtk-4-24`
 
 The tag was resolved with `git ls-remote` and checked against the fetched
 commit. No cryptographic tag-signature verification is claimed.
@@ -37,10 +37,16 @@ The fork's existing `AGENTS.md` is preserved. `.gitignore` is extended for local
 builds, staging, tooling, and private artifacts; upstream wrap recipes must
 remain eligible for version control.
 
-There are no GTK/GDK/GSK executable-code or public-header modifications in this
-bootstrap import. Later patches should name their affected subsystem and be
-compared against the source commit above, not against a different system GTK
-version. No consumer submodule or runtime linkage is changed by this import.
+The initial import was GTK 4.22.4 (commit
+`7f99ab1a26408b6499a18f353f081e3c0598ea5c`). The maintainer explicitly approved
+upgrading to 4.24.1 rather than downgrading the consumer's libadwaita. The update
+retains the fork's README, instructions, omitted CI boundary, and privacy edits.
+Dependency floors follow upstream 4.24.1, including GLib 2.89.3 and Pango 1.58.
+
+Fork behavior changes are confined to the private GDK frame clock and its
+headless tests. See [FRAME_POLICY.md](FRAME_POLICY.md). No installed public
+header, public API, or SONAME changes are intended. Compare against the exact
+source commit above, not the original 4.22.4 import.
 
 ## Privacy sanitization
 

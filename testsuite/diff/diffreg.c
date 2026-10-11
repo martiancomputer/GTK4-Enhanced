@@ -16,7 +16,7 @@
  *
  * Authors: Florian Leander Singer <sp1rit@disroot.org>
  */
-/*	$OpenBSD: diffreg.c,v 1.95 2021/10/24 21:24:16 deraadt Exp $	*/
+/*	$OpenBSD: diffreg.c,v 1.96 2026/04/01 17:47:46 deraadt Exp $	*/
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
  * All rights reserved.
@@ -187,6 +187,9 @@ struct context_vec {
 
 #define FUNCTION_CONTEXT_SIZE	55
 
+/* Initial capacity of change record allocation */
+#define MAX_CONTEXT		64
+
 
 #define diff_context 3
 #define Tflag FALSE
@@ -281,8 +284,8 @@ diffreg(const char *filename, GInputStream *file1, GInputStream *file2, GOutputS
 	op.lastline = 0;
 	op.lastmatchline = 0;
 
-	op.context_vec_start = NULL;
-	op.context_vec_end = NULL;
+	op.context_vec_start = g_malloc_n (MAX_CONTEXT, sizeof (*op.context_vec_start));
+	op.context_vec_end = op.context_vec_start + MAX_CONTEXT;
 	op.context_vec_ptr = op.context_vec_start - 1;
 
 	f1 = make_seekable_stream (file1);
@@ -329,6 +332,12 @@ diffreg(const char *filename, GInputStream *file1, GInputStream *file2, GOutputS
 	op.ixnew = g_realloc_n(op.ixnew, op.len[1] + 2, sizeof(*op.ixnew));
 	check(&op, f1, f2, flags);
 	output(&op, f1, f2, flags);
+
+	g_free (op.context_vec_start);
+	g_free (op.ixold);
+	g_free (op.ixnew);
+	g_free (op.J);
+
 closem:
 	if (op.anychange && rval == D_SAME)
 		rval = D_DIFFER;
@@ -811,8 +820,6 @@ static void
 change(DiffOperation *op, GInputStream *f1, GInputStream *f2, int a, int b, int c, int d,
     int *pflags)
 {
-	static size_t max_context = 64;
-
 	if (a > b && c > d)
 		return;
 
@@ -821,7 +828,7 @@ change(DiffOperation *op, GInputStream *f1, GInputStream *f2, int a, int b, int 
 	 */
 	if (op->context_vec_ptr == op->context_vec_end - 1) {
 		ptrdiff_t offset = op->context_vec_ptr - op->context_vec_start;
-		max_context <<= 1;
+		size_t max_context = (op->context_vec_end - op->context_vec_start) * 2;
 		op->context_vec_start = g_realloc_n(op->context_vec_start,
 		    max_context, sizeof(*op->context_vec_start));
 		op->context_vec_end = op->context_vec_start + max_context;
@@ -890,7 +897,7 @@ static int
 readhash(GInputStream *f, int flags)
 {
 	int i, t, space;
-	int sum;
+	unsigned int sum;
 
 	sum = 1;
 	space = 0;

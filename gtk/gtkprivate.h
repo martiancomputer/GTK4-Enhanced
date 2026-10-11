@@ -39,10 +39,6 @@
 
 G_BEGIN_DECLS
 
-#define GTK_PARAM_READABLE G_PARAM_READABLE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_NICK|G_PARAM_STATIC_BLURB
-#define GTK_PARAM_WRITABLE G_PARAM_WRITABLE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_NICK|G_PARAM_STATIC_BLURB
-#define GTK_PARAM_READWRITE G_PARAM_READWRITE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_NICK|G_PARAM_STATIC_BLURB
-
 #define OPPOSITE_ORIENTATION(_orientation) (1 - (_orientation))
 
 #ifndef G_ENABLE_CONSISTENCY_CHECKS
@@ -55,11 +51,11 @@ G_BEGIN_DECLS
 #define gtk_internal_return_val_if_fail(__expr, __val) g_return_val_if_fail(__expr, __val)
 #endif
 
-const char * _gtk_get_datadir            (void) G_GNUC_CONST;
-const char * _gtk_get_libdir             (void) G_GNUC_CONST;
-const char * _gtk_get_sysconfdir         (void) G_GNUC_CONST;
-const char * _gtk_get_localedir          (void) G_GNUC_CONST;
-const char * _gtk_get_data_prefix        (void) G_GNUC_CONST;
+const char * _gtk_get_datadir            (void);
+const char * _gtk_get_libdir             (void);
+const char * _gtk_get_sysconfdir         (void);
+const char * _gtk_get_localedir          (void);
+const char * _gtk_get_data_prefix        (void);
 
 gboolean      _gtk_fnmatch                (const char *pattern,
                                            const char *string,
@@ -99,6 +95,8 @@ gboolean   gtk_main_do_event            (GdkEvent        *event);
 GtkWidget *gtk_get_event_widget         (GdkEvent  *event);
 
 guint32    gtk_get_current_event_time   (void);
+
+gboolean   gtk_event_treat_as_touch (GdkEvent *event);
 
 void check_crossing_invariants (GtkWidget       *widget,
                                 GtkCrossingData *crossing);
