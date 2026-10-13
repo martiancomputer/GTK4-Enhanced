@@ -1,5 +1,10 @@
 gtk_tests_export_dynamic_ldflag = []
 
+# Pure policy arithmetic: no display, GTK initialization or generated input.
+enhanced_list_policy = executable('enhanced-list-policy',
+  'enhanced-list-policy.c', dependencies: glib_dep)
+test('enhanced-list-policy', enhanced_list_policy)
+
 if cc.get_id() != 'msvc'
   if os_darwin
     gtk_tests_export_dynamic_ldflag = ['-Wl,-export_dynamic']

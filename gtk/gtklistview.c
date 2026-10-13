@@ -20,6 +20,7 @@
 #include "config.h"
 
 #include "gtklistviewprivate.h"
+#include "gtkenhancedlistpolicyprivate.h"
 
 #include "gtkbitset.h"
 #include "gtklistbaseprivate.h"
@@ -619,6 +620,7 @@ gtk_list_view_size_allocate (GtkWidget *widget,
   GtkListView *self = GTK_LIST_VIEW (widget);
   GtkListTile *tile;
   GArray *heights;
+  guint pool_size = GTK_LIST_VIEW_MAX_LIST_ITEMS;
   int min, nat, row_height, y, list_width, spacing;
   GtkOrientation orientation, opposite_orientation;
   GtkScrollablePolicy scroll_policy, opposite_scroll_policy;
@@ -672,6 +674,22 @@ gtk_list_view_size_allocate (GtkWidget *widget,
     }
 
   /* step 3: determine height of unknown items and set the positions */
+  guint requested = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self),
+                                                        GTK_ENHANCED_LIST_POOL_BUDGET));
+  if (requested >= 32 && requested <= 512)
+    {
+      int smallest = G_MAXINT;
+      for (guint i = 0; i < heights->len; i++)
+        {
+          int measured = g_array_index (heights, int, i);
+          if (measured > 0)
+            smallest = MIN (smallest, measured);
+        }
+      if (smallest != G_MAXINT)
+        pool_size = gtk_enhanced_list_pool_size (requested,
+          orientation == GTK_ORIENTATION_VERTICAL ? height : width,
+          smallest, GTK_LIST_VIEW_MAX_LIST_ITEMS);
+    }
   row_height = gtk_list_view_get_unknown_row_height (self, heights);
   g_array_free (heights, TRUE);
 
@@ -695,6 +713,14 @@ gtk_list_view_size_allocate (GtkWidget *widget,
 
   /* step 4: allocate the rest */
   gtk_list_base_allocate (GTK_LIST_BASE (self));
+  if (pool_size != GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self),
+                                                        GTK_ENHANCED_LIST_POOL_APPLIED)))
+    {
+      g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_APPLIED,
+                         GUINT_TO_POINTER (pool_size));
+      gtk_list_base_set_anchor_max_widgets (GTK_LIST_BASE (self),
+                                            pool_size, GTK_LIST_VIEW_EXTRA_ITEMS);
+    }
 }
 
 static void
@@ -1016,6 +1042,9 @@ gtk_list_view_class_init (GtkListViewClass *klass)
 static void
 gtk_list_view_init (GtkListView *self)
 {
+  g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_VERSION, GUINT_TO_POINTER (1));
+  g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_APPLIED,
+                     GUINT_TO_POINTER (GTK_LIST_VIEW_MAX_LIST_ITEMS));
   self->item_manager = gtk_list_base_get_manager (GTK_LIST_BASE (self));
 
   gtk_list_base_set_anchor_max_widgets (GTK_LIST_BASE (self),
