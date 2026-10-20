@@ -53,6 +53,7 @@ typedef struct
 {
   guint frames;
   gint64 previous;
+  gboolean strict;
 } ClockProbe;
 
 static void
@@ -60,7 +61,10 @@ on_update (GdkFrameClock *clock,
            ClockProbe    *probe)
 {
   gint64 now = gdk_frame_clock_get_frame_time (clock);
-  g_assert_cmpint (now, >=, probe->previous);
+  if (probe->strict && probe->frames > 0)
+    g_assert_cmpint (now, >, probe->previous);
+  else
+    g_assert_cmpint (now, >=, probe->previous);
   probe->previous = now;
   probe->frames++;
 }
@@ -198,6 +202,61 @@ test_input_during_limit (void)
 }
 
 static void
+test_unsynchronized_guard (void)
+{
+  GObject *clock = g_object_new (G_TYPE_OBJECT, NULL);
+  g_assert_false (gdk_enhanced_frame_policy_unsynchronized (clock));
+  g_object_set_data (clock, GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY, GUINT_TO_POINTER (120));
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_REQUEST_KEY, GUINT_TO_POINTER (1));
+  g_assert_false (gdk_enhanced_frame_policy_unsynchronized (clock));
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_AVAILABLE_KEY, GUINT_TO_POINTER (1));
+  g_assert_true (gdk_enhanced_frame_policy_unsynchronized (clock));
+  const guint invalid[] = {0, 29, 361, G_MAXUINT};
+  for (guint i = 0; i < G_N_ELEMENTS (invalid); i++)
+    {
+      g_object_set_data (clock, GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY, GUINT_TO_POINTER (invalid[i]));
+      g_assert_false (gdk_enhanced_frame_policy_unsynchronized (clock));
+    }
+  g_object_set_data (clock, GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY, GUINT_TO_POINTER (120));
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_REQUEST_KEY, NULL);
+  g_assert_false (gdk_enhanced_frame_policy_unsynchronized (clock));
+  g_object_unref (clock);
+}
+
+static void
+test_unsynchronized_scheduler (void)
+{
+  GdkFrameClock *clock = _gdk_frame_clock_idle_new ();
+  ClockProbe probe = { .strict = TRUE };
+  g_assert_cmpuint (GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (clock),
+    GDK_ENHANCED_UNSYNC_VERSION_KEY)), ==, 1);
+  g_signal_connect (clock, "update", G_CALLBACK (on_update), &probe);
+  gdk_frame_clock_presented (clock, -1, g_get_monotonic_time_ns (), G_NSEC_PER_SEC / 60);
+  g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY, GUINT_TO_POINTER (120));
+  g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_REQUEST_KEY, GUINT_TO_POINTER (1));
+  g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_AVAILABLE_KEY, GUINT_TO_POINTER (1));
+  gdk_frame_clock_start (clock);
+  gdk_frame_clock_begin_updating (clock);
+  run_for (150);
+  g_assert_cmpuint (probe.frames, >=, 2);
+  g_assert_cmpuint (probe.frames, <=, 20);
+  gdk_frame_clock_end_updating (clock);
+  guint stopped = probe.frames;
+  run_for (60);
+  g_assert_cmpuint (probe.frames, ==, stopped);
+  g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_REQUEST_KEY, NULL);
+  gdk_frame_clock_begin_updating (clock);
+  run_for (100);
+  g_assert_cmpuint (probe.frames, >, stopped);
+  gdk_frame_clock_end_updating (clock);
+  gdk_frame_clock_stop (clock);
+  gpointer weak_clock = clock;
+  g_object_add_weak_pointer (G_OBJECT (clock), &weak_clock);
+  g_object_unref (clock);
+  g_assert_null (weak_clock);
+}
+
+static void
 test_scheduler_rates (void)
 {
   const guint rates[] = { 30, 60, 120, 144, 240, 360 };
@@ -234,5 +293,7 @@ main (int argc, char **argv)
   g_test_add_func ("/enhanced-frame-policy/clock-lifecycle", test_clock_lifecycle);
   g_test_add_func ("/enhanced-frame-policy/input-during-limit", test_input_during_limit);
   g_test_add_func ("/enhanced-frame-policy/scheduler-rates", test_scheduler_rates);
+  g_test_add_func ("/enhanced-frame-policy/unsynchronized-guard", test_unsynchronized_guard);
+  g_test_add_func ("/enhanced-frame-policy/unsynchronized-scheduler", test_unsynchronized_scheduler);
   return g_test_run ();
 }

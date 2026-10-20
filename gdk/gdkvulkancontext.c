@@ -19,6 +19,8 @@
  */
 
 #include "config.h"
+#include "gdkenhancedframepolicyprivate.h"
+#include "gdkframeclockprivate.h"
 
 #ifdef __APPLE__
 #define VK_ENABLE_BETA_EXTENSIONS
@@ -27,6 +29,9 @@
 #include "gdkvulkancontext.h"
 
 #include "gdkvulkancontextprivate.h"
+#ifdef GDK_WINDOWING_WAYLAND
+#include "wayland/gdkwaylanddisplay.h"
+#endif
 
 #include "gdkdebugprivate.h"
 #include "gdkdmabufformatsbuilderprivate.h"
@@ -580,6 +585,16 @@ gdk_vulkan_context_check_swapchain (GdkVulkanContext  *context,
       return FALSE;
     }
 
+#ifdef GDK_WINDOWING_WAYLAND
+  if (GDK_IS_WAYLAND_DISPLAY (gdk_draw_context_get_display (GDK_DRAW_CONTEXT (context))))
+    {
+      GdkFrameClock *clock = gdk_surface_get_frame_clock (surface);
+      gboolean nonblocking = present_mode == VK_PRESENT_MODE_MAILBOX_KHR ||
+                             present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR;
+      g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_AVAILABLE_KEY,
+                         GUINT_TO_POINTER (nonblocking));
+    }
+#endif
   g_signal_emit (context, signals[IMAGES_UPDATED], 0);
 
   return res == VK_SUCCESS;
@@ -991,7 +1006,7 @@ gdk_vulkan_context_end_frame (GdkDrawContext *draw_context,
         }
     }
 
-  GDK_VK_CHECK (vkQueuePresentKHR, gdk_vulkan_context_get_queue (context),
+  VkResult result = GDK_VK_CHECK (vkQueuePresentKHR, gdk_vulkan_context_get_queue (context),
                                    &(VkPresentInfoKHR) {
                                        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                        .waitSemaphoreCount = 1,
@@ -1007,6 +1022,19 @@ gdk_vulkan_context_end_frame (GdkDrawContext *draw_context,
                                        },
                                        .pNext = pNext,
                                    });
+
+  GdkSurface *surface = gdk_draw_context_get_surface (draw_context);
+  GdkFrameClock *clock = gdk_surface_get_frame_clock (surface);
+  if ((surface->state & GDK_TOPLEVEL_STATE_FOCUSED) &&
+      !(surface->state & GDK_TOPLEVEL_STATE_SUSPENDED) &&
+      gdk_enhanced_frame_policy_unsynchronized (G_OBJECT (clock)))
+    {
+      gint64 counter = gdk_frame_clock_get_frame_counter (clock);
+      if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
+        gdk_frame_clock_submitted (clock, counter, 0);
+      else
+        gdk_frame_clock_discarded (clock, counter);
+    }
 
   cairo_region_destroy (priv->regions[present->image_index]);
   priv->regions[present->image_index] = cairo_region_create ();
@@ -1185,6 +1213,16 @@ gdk_vulkan_context_surface_detach (GdkDrawContext *context)
   GdkVulkanContextPrivate *priv = gdk_vulkan_context_get_instance_private (self);
   VkDevice vk_device;
   guint i;
+
+  GdkSurface *surface = gdk_draw_context_get_surface (context);
+  if (surface &&
+      (gdk_surface_get_attached_context (surface) == context ||
+       gdk_surface_get_attached_context (surface) == NULL))
+    {
+      GdkFrameClock *clock = gdk_surface_get_frame_clock (surface);
+      if (clock)
+        g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_AVAILABLE_KEY, NULL);
+    }
 
   vk_device = gdk_vulkan_context_get_device (self);
 

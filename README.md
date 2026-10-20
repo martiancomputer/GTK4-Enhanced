@@ -150,9 +150,15 @@ deadline arithmetic, input handling, ownership, platform limits and rollback.
 Default is upstream pacing. Explicit rates from 30 through 360 are rendering
 ceilings; they do not force frames or override compositor/monitor throttling.
 
+A separate, default-off unsynchronized rendering prototype is available for
+focused Wayland/Vulkan windows with nonblocking presentation and an explicit
+frame-rate limit. It measures render submissions beyond refresh, not extra
+physical monitor frames. See the protocol, fallback and validation limits in
+[FRAME_POLICY.md](FRAME_POLICY.md).
+
 On Linux x86_64, GCC 16.2.1, GLib 2.90.1 and GTK 4.24.1, the shared library,
 GTK Demo and `examples/window-default` built successfully. The following
-headless subset passed **6 tests / 86 subtests**:
+headless subset passed **6 tests / 88 subtests**:
 
 ```sh
 env -u DISPLAY -u WAYLAND_DISPLAY meson test -C _build --no-rebuild \

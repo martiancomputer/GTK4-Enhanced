@@ -1,12 +1,24 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-#include <glib.h>
+#include <glib-object.h>
 
 /* Experimental object-data protocol, not installed API. All access is on the
  * owning main context. Zero/invalid values preserve the upstream scheduler. */
 #define GDK_ENHANCED_FRAME_POLICY_VERSION_KEY "gtk4-enhanced-frame-policy-version"
 #define GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY "gtk4-enhanced-max-fps-v1"
+#define GDK_ENHANCED_UNSYNC_VERSION_KEY "gtk4-enhanced-unsynchronized-version"
+#define GDK_ENHANCED_UNSYNC_REQUEST_KEY "gtk4-enhanced-unsynchronized-v1"
+#define GDK_ENHANCED_UNSYNC_AVAILABLE_KEY "gtk4-enhanced-unsynchronized-available-v1"
+
+static inline gboolean
+gdk_enhanced_frame_policy_unsynchronized (GObject *clock)
+{
+  guint fps = GPOINTER_TO_UINT (g_object_get_data (clock, GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY));
+  return fps >= 30 && fps <= 360 &&
+         GPOINTER_TO_UINT (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_REQUEST_KEY)) == 1 &&
+         GPOINTER_TO_UINT (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_AVAILABLE_KEY)) == 1;
+}
 
 typedef struct
 {
