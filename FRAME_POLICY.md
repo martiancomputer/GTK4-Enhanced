@@ -45,6 +45,58 @@ accessibility and compositor controls are not bypassed. No additional dependency
 beyond the approved upstream baseline upgrade is introduced. Modified GTK source
 remains LGPL-2.1-or-later with original notices retained.
 
+## Opt-in unsynchronized rendering prototype (R1, experimental)
+
+Correctness/performance gate: the existing ceiling preserves native pacing,
+so it cannot measure rendering throughput above a compositor's frame-callback
+cadence. Add a separate, default-off request; do not change ceiling semantics.
+The hypothesis is that bounded render scheduling, monotonic animation times,
+and nonblocking Vulkan presentation can produce additional real submissions
+without requesting synthetic redraws or misreporting physical presentation.
+
+Touched components: the private frame-policy protocol and idle clock, Wayland
+frame requests, Vulkan swapchain capability reporting, and the consumer's
+Performance settings. No public API, exported symbol, SONAME, dependency floor
+or normal-mode behavior is to change. The initial supported path is focused
+Wayland/Vulkan windows, an explicit 30..360 ceiling, and MAILBOX or IMMEDIATE
+presentation. Other paths retain native pacing. Compositor/driver backpressure
+can still prevent the requested render rate; screen refresh is not overridden.
+
+Verification: extend headless arithmetic/scheduler/lifecycle and settings
+coverage; compare dynamic exports; build the isolated library and consumer;
+manually check real Vulkan submissions with the overlay, then idle, focus,
+resize and synchronized fallback. No automated UI input. Rollback is to turn
+the request off (or select Default), or to load the previous isolated runtime.
+Do not infer physical high-refresh support from a renderer or overlay counter.
+
+The ceiling protocol stays at version 1 for existing consumers. A separate
+`gtk4-enhanced-unsynchronized-version` integer-pointer value 1 advertises the
+experimental extension. Set `gtk4-enhanced-unsynchronized-v1` to integer-pointer
+1 on the owning clock to request it; zero/absent disables it. GDK sets
+`gtk4-enhanced-unsynchronized-available-v1` only for a Wayland Vulkan swapchain
+using MAILBOX/IMMEDIATE. A valid explicit ceiling is mandatory. Consumers must
+gate the request to their focused window. A suspended surface never opts out
+of compositor throttling. The extension creates no permanent repaint source.
+
+In throughput mode, frame completion is reported as submission, not physical
+presentation. The display still scans out at its actual refresh rate. Turning
+the request off restores the ordinary callback path on the next frame.
+
+Local verification: the isolated shared library and consumer build passed;
+the six headless GTK suites passed 88 subtests, including seven frame-policy
+cases. The consumer's settings, shortcuts, presentation and layout suites
+passed. Defined dynamic export names/kinds remain identical (5,510) and the
+SONAME remains libgtk-4.so.1; this is not a full ABI-layout certification.
+The consumer's headless help path also runs against stock GTK.
+
+The user confirmed the experimental consumer path works on native
+Wayland/Vulkan with an approximately 60 Hz output and a 120 FPS render limit.
+No exact throughput or frame-time distribution was independently recorded.
+This does not certify 120 Hz physical presentation, power consumption,
+Windows/macOS behavior, mixed monitors, or the complete renderer matrix.
+Existing upstream null-dereference warnings in array-test assertions were
+not suppressed; the tests passed. No automated UI interaction was used.
+
 ## Verification and rollback
 
 `enhanced-frame-policy` is headless: arithmetic at every offered FPS, invalid

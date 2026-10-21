@@ -25,6 +25,8 @@
 #include "gdkdragsurfaceprivate.h"
 #include "gdkeventsprivate.h"
 #include "gdkframeclockidleprivate.h"
+#include "gdkenhancedframepolicyprivate.h"
+#include "gdkvulkancontextprivate.h"
 #include "gdkframetimingsprivate.h"
 #include "gdkglcontext-wayland.h"
 #include "gdkmonitor-wayland.h"
@@ -368,10 +370,21 @@ gdk_wayland_surface_request_frame (GdkSurface *surface)
   GdkWaylandSurface *self = GDK_WAYLAND_SURFACE (surface);
   GdkFrameClock *clock;
 
+  clock = gdk_surface_get_frame_clock (surface);
+  if ((surface->state & GDK_TOPLEVEL_STATE_FOCUSED) &&
+      !(surface->state & GDK_TOPLEVEL_STATE_SUSPENDED) &&
+      GDK_IS_VULKAN_CONTEXT (gdk_surface_get_attached_context (surface)) &&
+      gdk_enhanced_frame_policy_unsynchronized (G_OBJECT (clock)))
+    {
+      /* Explicit bounded throughput mode: do not request a throttling frame
+       * callback. Vulkan completes timing after the actual present call.
+       * Existing callbacks, if any, still finish their original frame. */
+      gdk_frame_clock_outstanding (clock);
+      return;
+    }
+
   if (self->frame_callback != NULL)
     return;
-
-  clock = gdk_surface_get_frame_clock (surface);
 
   self->frame_callback = wl_surface_frame (self->display_server.wl_surface);
   wl_proxy_set_queue ((struct wl_proxy *) self->frame_callback, NULL);

@@ -58,6 +58,7 @@ struct _GdkFrameClockIdlePrivate
 
   GSource *source;
   GdkEnhancedFramePolicy enhanced_policy;
+  gboolean unsynchronized;
 
   guint paint_is_thaw : 1;
 };
@@ -72,6 +73,8 @@ gdk_frame_clock_idle_init (GdkFrameClockIdle *frame_clock_idle)
   priv->smoothed_frame_time_period = FRAME_INTERVAL;
   g_object_set_data (G_OBJECT (frame_clock_idle),
                      GDK_ENHANCED_FRAME_POLICY_VERSION_KEY, GUINT_TO_POINTER (1));
+  g_object_set_data (G_OBJECT (frame_clock_idle),
+                     GDK_ENHANCED_UNSYNC_VERSION_KEY, GUINT_TO_POINTER (1));
 }
 
 static void
@@ -183,6 +186,24 @@ get_source_priority (GdkFrameClockIdle *self)
 static gboolean gdk_frame_clock_source_cb (void *data);
 
 static void
+sync_enhanced_policy (GdkFrameClockIdle *self)
+{
+  GdkFrameClockIdlePrivate *priv = gdk_frame_clock_idle_get_instance_private (self);
+  gboolean unsynchronized;
+
+  gdk_enhanced_frame_policy_sync (&priv->enhanced_policy,
+    GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self), GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY)));
+  unsynchronized = gdk_enhanced_frame_policy_unsynchronized (G_OBJECT (self));
+  if (priv->unsynchronized != unsynchronized)
+    {
+      priv->unsynchronized = unsynchronized;
+      priv->min_next_frame_time = 0;
+      priv->smooth_phase_state = SMOOTH_PHASE_STATE_AWAIT_FIRST;
+      priv->enhanced_policy.deadline = 0;
+    }
+}
+
+static void
 maybe_start_idle (GdkFrameClockIdle *self,
                   gboolean           caused_by_thaw)
 {
@@ -193,11 +214,10 @@ maybe_start_idle (GdkFrameClockIdle *self,
       uint64_t interval = 0;
       uint64_t now = g_get_monotonic_time_ns ();
 
-      gdk_enhanced_frame_policy_sync (&priv->enhanced_policy,
-        GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self),
-                                            GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY)));
+      sync_enhanced_policy (self);
 
       if (priv->min_next_frame_time != 0 &&
+          !priv->unsynchronized &&
           !GDK_DEBUG_CHECK (NO_VSYNC))
         {
           if (now < priv->min_next_frame_time)
@@ -339,6 +359,16 @@ gdk_frame_clock_idle_compute_frame_time (GdkFrameClock *clock,
   GdkFrameClockIdlePrivate *priv = gdk_frame_clock_idle_get_instance_private (self);
   gint64 new_smoothed_time;
 
+  if (priv->unsynchronized)
+    {
+      /* Animation progress follows real monotonic time, not a 60 Hz grid.
+       * These are rendering timestamps, not fabricated presentation times. */
+      priv->smoothed_frame_time_reported = MAX (now, priv->smoothed_frame_time_reported);
+      priv->smoothed_frame_time_base = priv->smoothed_frame_time_reported;
+      priv->smoothed_frame_time_phase = 0;
+      return priv->smoothed_frame_time_reported;
+    }
+
   if (start_of_frame)
     return gdk_frame_clock_idle_update_frame_time (self, now);
 
@@ -370,9 +400,7 @@ gdk_frame_clock_source_cb (void *data)
 
   priv->source = NULL;
 
-  gdk_enhanced_frame_policy_sync (&priv->enhanced_policy,
-    GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self),
-                                        GDK_ENHANCED_FRAME_POLICY_LIMIT_KEY)));
+  sync_enhanced_policy (self);
   uint64_t now = g_get_monotonic_time_ns ();
   if (priv->enhanced_policy.deadline > now)
     {
