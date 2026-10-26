@@ -1029,11 +1029,8 @@ gdk_vulkan_context_end_frame (GdkDrawContext *draw_context,
       !(surface->state & GDK_TOPLEVEL_STATE_SUSPENDED) &&
       gdk_enhanced_frame_policy_unsynchronized (G_OBJECT (clock)))
     {
-      gint64 counter = gdk_frame_clock_get_frame_counter (clock);
-      if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
-        gdk_frame_clock_submitted (clock, counter, 0);
-      else
-        gdk_frame_clock_discarded (clock, counter);
+      gdk_enhanced_frame_policy_record_submission (clock,
+        result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR);
     }
 
   cairo_region_destroy (priv->regions[present->image_index]);

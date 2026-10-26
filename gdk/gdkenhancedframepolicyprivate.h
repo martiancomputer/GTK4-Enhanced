@@ -2,6 +2,7 @@
 #pragma once
 
 #include <glib-object.h>
+#include "gdkframeclockprivate.h"
 
 /* Experimental object-data protocol, not installed API. All access is on the
  * owning main context. Zero/invalid values preserve the upstream scheduler. */
@@ -10,6 +11,58 @@
 #define GDK_ENHANCED_UNSYNC_VERSION_KEY "gtk4-enhanced-unsynchronized-version"
 #define GDK_ENHANCED_UNSYNC_REQUEST_KEY "gtk4-enhanced-unsynchronized-v1"
 #define GDK_ENHANCED_UNSYNC_AVAILABLE_KEY "gtk4-enhanced-unsynchronized-available-v1"
+
+typedef struct
+{
+  gint64 frame_counter;
+  gboolean pending;
+  gboolean submitted;
+} GdkEnhancedSubmission;
+
+static void
+gdk_enhanced_frame_policy_finish_submission (GdkFrameClock       *clock,
+                                            GdkEnhancedSubmission *submission)
+{
+  if (!submission->pending)
+    return;
+
+  submission->pending = FALSE;
+  if (submission->submitted)
+    gdk_frame_clock_submitted (clock, submission->frame_counter, 0);
+  else
+    gdk_frame_clock_discarded (clock, submission->frame_counter);
+}
+
+/* The backend's end_frame() returns before the common draw-context wrapper
+ * marks the frame OUTSTANDING. Complete it only in AFTER_PAINT, after every
+ * context has returned. Coalesce presents sharing a clock/frame; one queued
+ * buffer is enough to count the frame as submitted. No presentation timestamp
+ * is fabricated, and no timer or per-frame closure is allocated. */
+static inline void
+gdk_enhanced_frame_policy_record_submission (GdkFrameClock *clock,
+                                            gboolean       submitted)
+{
+  const char *key = "gtk4-enhanced-pending-submission-v1";
+  GdkEnhancedSubmission *submission = g_object_get_data (G_OBJECT (clock), key);
+  gint64 counter = gdk_frame_clock_get_frame_counter (clock);
+
+  if (submission == NULL)
+    {
+      submission = g_new0 (GdkEnhancedSubmission, 1);
+      g_object_set_data_full (G_OBJECT (clock), key, submission, g_free);
+      g_signal_connect (clock, "after-paint",
+                        G_CALLBACK (gdk_enhanced_frame_policy_finish_submission), submission);
+    }
+
+  if (!submission->pending || submission->frame_counter != counter)
+    {
+      submission->frame_counter = counter;
+      submission->submitted = submitted;
+    }
+  else
+    submission->submitted |= submitted;
+  submission->pending = TRUE;
+}
 
 static inline gboolean
 gdk_enhanced_frame_policy_unsynchronized (GObject *clock)

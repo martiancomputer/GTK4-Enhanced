@@ -284,6 +284,67 @@ test_scheduler_rates (void)
   g_object_unref (clock);
 }
 
+typedef struct
+{
+  guint mode;
+  guint completed;
+  gint64 counter;
+} SubmissionProbe;
+
+static void
+submit_during_paint (GdkFrameClock *clock,
+                     SubmissionProbe *probe)
+{
+  probe->counter = gdk_frame_clock_get_frame_counter (clock);
+  gdk_frame_clock_outstanding (clock);
+  gdk_enhanced_frame_policy_record_submission (clock, probe->mode == 1 || probe->mode == 2);
+  if (probe->mode == 2)
+    gdk_enhanced_frame_policy_record_submission (clock, FALSE);
+  if (probe->mode == 3)
+    {
+      gdk_enhanced_frame_policy_record_submission (clock, FALSE);
+      gdk_enhanced_frame_policy_record_submission (clock, TRUE);
+    }
+
+  /* The generic GdkDrawContext wrapper does this after Vulkan end_frame()
+   * returns. An immediate SUBMITTED/DISCARDED result used to fail here. */
+  g_assert_cmpint (gdk_frame_timings_get_result (
+    gdk_frame_clock_get_current_timings (clock)), ==, GDK_FRAME_OUTSTANDING);
+  gdk_frame_clock_outstanding (clock);
+}
+
+static void
+submission_finished (GdkFrameClock *clock,
+                      SubmissionProbe *probe)
+{
+  GdkFrameTimings *timings = gdk_frame_clock_get_timings (clock, probe->counter);
+  g_assert_cmpint (gdk_frame_timings_get_result (timings), ==,
+                  probe->mode == 0 ? GDK_FRAME_DISCARDED : GDK_FRAME_SUBMITTED);
+  probe->completed++;
+}
+
+static void
+test_submission_order (void)
+{
+  GdkFrameClock *clock = _gdk_frame_clock_idle_new ();
+  SubmissionProbe probe = { 0 };
+  g_signal_connect (clock, "paint", G_CALLBACK (submit_during_paint), &probe);
+  g_signal_connect_after (clock, "after-paint", G_CALLBACK (submission_finished), &probe);
+  gdk_frame_clock_start (clock);
+  for (probe.mode = 0; probe.mode < 4; probe.mode++)
+    {
+      guint completed = probe.completed;
+      gdk_frame_clock_request_phase (clock, GDK_FRAME_CLOCK_PHASE_PAINT);
+      run_for (60);
+      g_assert_cmpuint (probe.completed, ==, completed + 1);
+    }
+  gdk_frame_clock_stop (clock);
+  gpointer weak_clock = clock;
+  g_object_add_weak_pointer (G_OBJECT (clock), &weak_clock);
+  g_object_unref (clock);
+  g_assert_null (weak_clock);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -295,5 +356,6 @@ main (int argc, char **argv)
   g_test_add_func ("/enhanced-frame-policy/scheduler-rates", test_scheduler_rates);
   g_test_add_func ("/enhanced-frame-policy/unsynchronized-guard", test_unsynchronized_guard);
   g_test_add_func ("/enhanced-frame-policy/unsynchronized-scheduler", test_unsynchronized_scheduler);
+  g_test_add_func ("/enhanced-frame-policy/submission-after-draw-wrapper", test_submission_order);
   return g_test_run ();
 }

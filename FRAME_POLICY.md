@@ -99,6 +99,14 @@ not suppressed; the tests passed. No automated UI interaction was used.
 
 ## Verification and rollback
 
+In throughput mode, a successful Vulkan present is recorded during painting
+and completed in `after-paint`. The generic draw-context wrapper must finish
+marking the frame outstanding first; completing inside the Vulkan backend's
+`end_frame` reopens a completed timing record and produces a warning per frame.
+Results sharing a clock/frame are coalesced, without per-frame allocations or
+invented presentation timestamps. A scheduler regression test exercises both
+success and failure through the real outer-wrapper ordering.
+
 `enhanced-frame-policy` is headless: arithmetic at every offered FPS, invalid
 values, overflow, stall recovery, real main-loop clock lifecycle, idle/stop
 cancellation and input flushing during a ceiling. These are scheduler tests,
