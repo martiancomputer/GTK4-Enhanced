@@ -99,6 +99,24 @@ not suppressed; the tests passed. No automated UI interaction was used.
 
 ## Verification and rollback
 
+Stable heterogeneous lists can opt into `gtk4-enhanced-item-extents-default-v1`
+after checking `gtk4-enhanced-item-extents-version == 1`. The value is their
+default logical row estimate (1–4096 pixels). Measured minimum/natural item
+heights survive recycling, so tall section headings do not repeatedly revert
+to the visible rows' median. Entries reset on model changes and width changes.
+The cache is limited to 16,384 items (128 KiB of integer extents), owns no
+artwork, and is disabled by default. Clients must replace/invalidate their model
+when changing height-affecting presentation outside a width change.
+
+Wayland Vulkan availability belongs to the toplevel context. Popup creation
+must not replace that owner, and popup destruction must not clear a shared
+frame clock's availability. Otherwise throughput falls back until a toplevel
+swapchain resize republishes the capability. The ownership regression also
+checks that an older context cannot clear its replacement's state.
+When a popup requests native presentation feedback on a shared clock, that
+feedback completes the frame. Throughput submission must not prematurely
+complete the same record before the compositor reports it as presented.
+
 In throughput mode, a successful Vulkan present is recorded during painting
 and completed in `after-paint`. The generic draw-context wrapper must finish
 marking the frame outstanding first; completing inside the Vulkan backend's

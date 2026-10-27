@@ -386,6 +386,9 @@ gdk_wayland_surface_request_frame (GdkSurface *surface)
   if (self->frame_callback != NULL)
     return;
 
+  if (gdk_enhanced_frame_policy_unsynchronized (G_OBJECT (clock)))
+    gdk_enhanced_frame_policy_native_feedback (clock);
+
   self->frame_callback = wl_surface_frame (self->display_server.wl_surface);
   wl_proxy_set_queue ((struct wl_proxy *) self->frame_callback, NULL);
   wl_callback_add_listener (self->frame_callback, &frame_listener, surface);

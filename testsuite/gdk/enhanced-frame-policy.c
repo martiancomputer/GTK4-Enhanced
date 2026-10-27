@@ -5,6 +5,33 @@
 #include "gdk/gdkframeclockprivate.h"
 
 static void
+test_availability_owner (void)
+{
+  GObject *clock = g_object_new (G_TYPE_OBJECT, NULL);
+  GObject *root = g_object_new (G_TYPE_OBJECT, NULL);
+  GObject *popup = g_object_new (G_TYPE_OBJECT, NULL);
+  GObject *replacement = g_object_new (G_TYPE_OBJECT, NULL);
+  gdk_enhanced_frame_policy_publish_availability (clock, root, TRUE);
+  gdk_enhanced_frame_policy_clear_availability (clock, popup);
+  g_assert_cmpuint (GPOINTER_TO_UINT (g_object_get_data (clock,
+    GDK_ENHANCED_UNSYNC_AVAILABLE_KEY)), ==, 1);
+  gdk_enhanced_frame_policy_publish_availability (clock, replacement, FALSE);
+  gdk_enhanced_frame_policy_clear_availability (clock, root);
+  g_assert_true (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_OWNER_KEY) == replacement);
+  gdk_enhanced_frame_policy_publish_availability (clock, replacement, TRUE);
+  gdk_enhanced_frame_policy_clear_availability (clock, root);
+  g_assert_cmpuint (GPOINTER_TO_UINT (g_object_get_data (clock,
+    GDK_ENHANCED_UNSYNC_AVAILABLE_KEY)), ==, 1);
+  gdk_enhanced_frame_policy_clear_availability (clock, replacement);
+  g_assert_null (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_OWNER_KEY));
+  g_assert_null (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_AVAILABLE_KEY));
+  g_object_unref (replacement);
+  g_object_unref (popup);
+  g_object_unref (root);
+  g_object_unref (clock);
+}
+
+static void
 test_arithmetic (void)
 {
   const guint rates[] = { 30, 60, 120, 144, 240, 360 };
@@ -297,6 +324,8 @@ submit_during_paint (GdkFrameClock *clock,
 {
   probe->counter = gdk_frame_clock_get_frame_counter (clock);
   gdk_frame_clock_outstanding (clock);
+  if (probe->mode == 4)
+    gdk_enhanced_frame_policy_native_feedback (clock);
   gdk_enhanced_frame_policy_record_submission (clock, probe->mode == 1 || probe->mode == 2);
   if (probe->mode == 2)
     gdk_enhanced_frame_policy_record_submission (clock, FALSE);
@@ -318,6 +347,15 @@ submission_finished (GdkFrameClock *clock,
                       SubmissionProbe *probe)
 {
   GdkFrameTimings *timings = gdk_frame_clock_get_timings (clock, probe->counter);
+  if (probe->mode == 4)
+    {
+      g_assert_cmpint (gdk_frame_timings_get_result (timings), ==, GDK_FRAME_OUTSTANDING);
+      gdk_frame_clock_presented (clock, probe->counter,
+                                g_get_monotonic_time () * 1000, 16666667);
+      g_assert_cmpint (gdk_frame_timings_get_result (timings), ==, GDK_FRAME_PRESENTED);
+      probe->completed++;
+      return;
+    }
   g_assert_cmpint (gdk_frame_timings_get_result (timings), ==,
                   probe->mode == 0 ? GDK_FRAME_DISCARDED : GDK_FRAME_SUBMITTED);
   probe->completed++;
@@ -331,7 +369,7 @@ test_submission_order (void)
   g_signal_connect (clock, "paint", G_CALLBACK (submit_during_paint), &probe);
   g_signal_connect_after (clock, "after-paint", G_CALLBACK (submission_finished), &probe);
   gdk_frame_clock_start (clock);
-  for (probe.mode = 0; probe.mode < 4; probe.mode++)
+  for (probe.mode = 0; probe.mode < 5; probe.mode++)
     {
       guint completed = probe.completed;
       gdk_frame_clock_request_phase (clock, GDK_FRAME_CLOCK_PHASE_PAINT);
@@ -357,5 +395,6 @@ main (int argc, char **argv)
   g_test_add_func ("/enhanced-frame-policy/unsynchronized-guard", test_unsynchronized_guard);
   g_test_add_func ("/enhanced-frame-policy/unsynchronized-scheduler", test_unsynchronized_scheduler);
   g_test_add_func ("/enhanced-frame-policy/submission-after-draw-wrapper", test_submission_order);
+  g_test_add_func ("/enhanced-frame-policy/availability-owner", test_availability_owner);
   return g_test_run ();
 }

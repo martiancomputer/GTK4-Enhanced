@@ -11,10 +11,35 @@
 #define GDK_ENHANCED_UNSYNC_VERSION_KEY "gtk4-enhanced-unsynchronized-version"
 #define GDK_ENHANCED_UNSYNC_REQUEST_KEY "gtk4-enhanced-unsynchronized-v1"
 #define GDK_ENHANCED_UNSYNC_AVAILABLE_KEY "gtk4-enhanced-unsynchronized-available-v1"
+#define GDK_ENHANCED_UNSYNC_OWNER_KEY "gtk4-enhanced-unsynchronized-owner-v1"
+
+/* A toplevel and its popups can share a clock. Only the owning toplevel
+ * context may revoke its capability; the raw identity is never dereferenced
+ * and is cleared when that context detaches (no clock/context reference cycle). */
+static inline void
+gdk_enhanced_frame_policy_publish_availability (GObject *clock,
+                                                gpointer owner,
+                                                gboolean available)
+{
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_OWNER_KEY, owner);
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_AVAILABLE_KEY,
+                     GUINT_TO_POINTER (!!available));
+}
+
+static inline void
+gdk_enhanced_frame_policy_clear_availability (GObject *clock,
+                                              gpointer owner)
+{
+  if (g_object_get_data (clock, GDK_ENHANCED_UNSYNC_OWNER_KEY) != owner)
+    return;
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_OWNER_KEY, NULL);
+  g_object_set_data (clock, GDK_ENHANCED_UNSYNC_AVAILABLE_KEY, NULL);
+}
 
 typedef struct
 {
   gint64 frame_counter;
+  gint64 native_frame_counter;
   gboolean pending;
   gboolean submitted;
 } GdkEnhancedSubmission;
@@ -27,6 +52,10 @@ gdk_enhanced_frame_policy_finish_submission (GdkFrameClock       *clock,
     return;
 
   submission->pending = FALSE;
+  /* A popup sharing this clock may have requested real presentation feedback
+   * for the same frame. Let that feedback complete it as PRESENTED. */
+  if (submission->native_frame_counter == submission->frame_counter)
+    return;
   if (submission->submitted)
     gdk_frame_clock_submitted (clock, submission->frame_counter, 0);
   else
@@ -38,21 +67,36 @@ gdk_enhanced_frame_policy_finish_submission (GdkFrameClock       *clock,
  * context has returned. Coalesce presents sharing a clock/frame; one queued
  * buffer is enough to count the frame as submitted. No presentation timestamp
  * is fabricated, and no timer or per-frame closure is allocated. */
-static inline void
-gdk_enhanced_frame_policy_record_submission (GdkFrameClock *clock,
-                                            gboolean       submitted)
+static inline GdkEnhancedSubmission *
+gdk_enhanced_frame_policy_submission_state (GdkFrameClock *clock)
 {
   const char *key = "gtk4-enhanced-pending-submission-v1";
   GdkEnhancedSubmission *submission = g_object_get_data (G_OBJECT (clock), key);
-  gint64 counter = gdk_frame_clock_get_frame_counter (clock);
 
   if (submission == NULL)
     {
       submission = g_new0 (GdkEnhancedSubmission, 1);
+      submission->native_frame_counter = -1;
       g_object_set_data_full (G_OBJECT (clock), key, submission, g_free);
       g_signal_connect (clock, "after-paint",
                         G_CALLBACK (gdk_enhanced_frame_policy_finish_submission), submission);
     }
+  return submission;
+}
+
+static inline void
+gdk_enhanced_frame_policy_native_feedback (GdkFrameClock *clock)
+{
+  GdkEnhancedSubmission *submission = gdk_enhanced_frame_policy_submission_state (clock);
+  submission->native_frame_counter = gdk_frame_clock_get_frame_counter (clock);
+}
+
+static inline void
+gdk_enhanced_frame_policy_record_submission (GdkFrameClock *clock,
+                                            gboolean       submitted)
+{
+  GdkEnhancedSubmission *submission = gdk_enhanced_frame_policy_submission_state (clock);
+  gint64 counter = gdk_frame_clock_get_frame_counter (clock);
 
   if (!submission->pending || submission->frame_counter != counter)
     {

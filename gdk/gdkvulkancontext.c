@@ -586,13 +586,13 @@ gdk_vulkan_context_check_swapchain (GdkVulkanContext  *context,
     }
 
 #ifdef GDK_WINDOWING_WAYLAND
-  if (GDK_IS_WAYLAND_DISPLAY (gdk_draw_context_get_display (GDK_DRAW_CONTEXT (context))))
+  if (GDK_IS_TOPLEVEL (surface) &&
+      GDK_IS_WAYLAND_DISPLAY (gdk_draw_context_get_display (GDK_DRAW_CONTEXT (context))))
     {
       GdkFrameClock *clock = gdk_surface_get_frame_clock (surface);
       gboolean nonblocking = present_mode == VK_PRESENT_MODE_MAILBOX_KHR ||
                              present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR;
-      g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_AVAILABLE_KEY,
-                         GUINT_TO_POINTER (nonblocking));
+      gdk_enhanced_frame_policy_publish_availability (G_OBJECT (clock), context, nonblocking);
     }
 #endif
   g_signal_emit (context, signals[IMAGES_UPDATED], 0);
@@ -1218,7 +1218,7 @@ gdk_vulkan_context_surface_detach (GdkDrawContext *context)
     {
       GdkFrameClock *clock = gdk_surface_get_frame_clock (surface);
       if (clock)
-        g_object_set_data (G_OBJECT (clock), GDK_ENHANCED_UNSYNC_AVAILABLE_KEY, NULL);
+        gdk_enhanced_frame_policy_clear_availability (G_OBJECT (clock), context);
     }
 
   vk_device = gdk_vulkan_context_get_device (self);

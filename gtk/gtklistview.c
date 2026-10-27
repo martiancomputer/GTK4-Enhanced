@@ -522,6 +522,62 @@ gtk_list_view_measure_across (GtkWidget      *widget,
 }
 
 static void
+enhanced_extent_items_changed (GListModel *model, guint position,
+                               guint removed, guint added, gpointer data);
+
+typedef struct {
+  GtkEnhancedItemExtents extents;
+  GListModel *model;
+  gulong handler;
+  int width;
+  guint fallback;
+} EnhancedExtentState;
+
+static void
+enhanced_extent_state_free (gpointer data)
+{
+  EnhancedExtentState *state = data;
+  if (state->handler) g_signal_handler_disconnect (state->model, state->handler);
+  g_clear_object (&state->model);
+  gtk_enhanced_item_extents_reset (&state->extents, 0);
+  g_free (state);
+}
+
+static void
+enhanced_extent_items_changed (GListModel *model, guint position,
+                               guint removed, guint added, gpointer data)
+{
+  EnhancedExtentState *state = data;
+  gtk_enhanced_item_extents_reset (&state->extents, g_list_model_get_n_items (model));
+  (void) position; (void) removed; (void) added;
+}
+
+static EnhancedExtentState *
+enhanced_extent_state (GtkListView *self)
+{
+  guint fallback = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_DEFAULT));
+  GListModel *model = G_LIST_MODEL (gtk_list_view_get_model (self));
+  guint count = model ? g_list_model_get_n_items (model) : 0;
+  EnhancedExtentState *state = g_object_get_data (G_OBJECT (self), "gtk4-enhanced-item-extents-state");
+  if (fallback == 0 || fallback > 4096 || count == 0 || count > GTK_ENHANCED_ITEM_EXTENTS_MAX) {
+    if (state)
+      g_object_set_data (G_OBJECT (self), "gtk4-enhanced-item-extents-state", NULL);
+    return NULL;
+  }
+  if (!state || state->model != model || state->fallback != fallback) {
+    state = g_new0 (EnhancedExtentState, 1);
+    state->model = g_object_ref (model);
+    state->fallback = fallback;
+    gtk_enhanced_item_extents_reset (&state->extents, count);
+    state->handler = g_signal_connect (model, "items-changed",
+      G_CALLBACK (enhanced_extent_items_changed), state);
+    g_object_set_data_full (G_OBJECT (self), "gtk4-enhanced-item-extents-state",
+                            state, enhanced_extent_state_free);
+  }
+  return state;
+}
+
+static void
 gtk_list_view_measure_list (GtkWidget      *widget,
                             GtkOrientation  orientation,
                             int             for_size,
@@ -533,6 +589,8 @@ gtk_list_view_measure_list (GtkWidget      *widget,
   int min, nat, child_min, child_nat, spacing;
   GArray *min_heights, *nat_heights;
   guint n_unknown, n_items;
+  EnhancedExtentState *extents = enhanced_extent_state (self);
+  guint extent_position = 0;
 
   n_items = gtk_list_base_get_n_items (GTK_LIST_BASE (self));
   if (n_items == 0)
@@ -564,8 +622,15 @@ gtk_list_view_measure_list (GtkWidget      *widget,
         }
       else
         {
-          n_unknown += tile->n_items;
+          if (extents) {
+            min += gtk_enhanced_item_extents_range (&extents->extents, extent_position,
+                    tile->n_items, extents->fallback, FALSE);
+            nat += gtk_enhanced_item_extents_range (&extents->extents, extent_position,
+                    tile->n_items, extents->fallback, TRUE);
+          } else
+            n_unknown += tile->n_items;
         }
+      extent_position += tile->n_items;
     }
 
   if (n_unknown)
@@ -624,6 +689,8 @@ gtk_list_view_size_allocate (GtkWidget *widget,
   int min, nat, row_height, y, list_width, spacing;
   GtkOrientation orientation, opposite_orientation;
   GtkScrollablePolicy scroll_policy, opposite_scroll_policy;
+  EnhancedExtentState *extents = enhanced_extent_state (self);
+  guint extent_position = 0;
 
   orientation = gtk_list_base_get_orientation (GTK_LIST_BASE (self));
   opposite_orientation = OPPOSITE_ORIENTATION (orientation);
@@ -650,6 +717,12 @@ gtk_list_view_size_allocate (GtkWidget *widget,
     list_width = MAX (min, list_width);
   else
     list_width = MAX (nat, list_width);
+  if (extents) {
+    if (extents->width && extents->width != list_width)
+      gtk_enhanced_item_extents_reset (&extents->extents,
+                                      g_list_model_get_n_items (extents->model));
+    extents->width = list_width;
+  }
 
   /* step 2: determine height of known list items and gc the list */
   heights = g_array_new (FALSE, FALSE, sizeof (int));
@@ -659,7 +732,10 @@ gtk_list_view_size_allocate (GtkWidget *widget,
        tile = gtk_rb_tree_node_get_next (tile))
     {
       if (tile->widget == NULL)
-        continue;
+        {
+          extent_position += tile->n_items;
+          continue;
+        }
 
       gtk_widget_measure (tile->widget, orientation,
                           list_width,
@@ -669,6 +745,9 @@ gtk_list_view_size_allocate (GtkWidget *widget,
       else
         row_height = nat;
       gtk_list_tile_set_area_size (self->item_manager, tile, list_width, row_height);
+      if (extents && tile->type == GTK_LIST_TILE_ITEM && tile->n_items == 1)
+        gtk_enhanced_item_extents_record (&extents->extents, extent_position, min, nat);
+      extent_position += tile->n_items;
       if (tile->type == GTK_LIST_TILE_ITEM)
         g_array_append_val (heights, row_height);
     }
@@ -690,10 +769,11 @@ gtk_list_view_size_allocate (GtkWidget *widget,
           orientation == GTK_ORIENTATION_VERTICAL ? height : width,
           smallest, GTK_LIST_VIEW_MAX_LIST_ITEMS);
     }
-  row_height = gtk_list_view_get_unknown_row_height (self, heights);
+  row_height = extents ? extents->fallback : gtk_list_view_get_unknown_row_height (self, heights);
   g_array_free (heights, TRUE);
 
   y = 0;
+  extent_position = 0;
   for (tile = gtk_list_item_manager_get_first (self->item_manager);
        tile != NULL;
        tile = gtk_rb_tree_node_get_next (tile))
@@ -704,11 +784,15 @@ gtk_list_view_size_allocate (GtkWidget *widget,
           gtk_list_tile_set_area_size (self->item_manager,
                                        tile,
                                        list_width,
-                                       row_height * tile->n_items
+                                       (extents ? gtk_enhanced_item_extents_range (
+                                          &extents->extents, extent_position, tile->n_items,
+                                          extents->fallback, scroll_policy != GTK_SCROLL_MINIMUM)
+                                        : row_height * tile->n_items)
                                        + spacing * (tile->n_items - 1));
         }
 
       y += tile->area.height + spacing;
+      extent_position += tile->n_items;
     }
 
   /* step 4: allocate the rest */
@@ -776,6 +860,7 @@ gtk_list_view_dispose (GObject *object)
 
   g_clear_object (&self->factory);
   g_clear_object (&self->header_factory);
+  g_object_set_data (G_OBJECT (self), "gtk4-enhanced-item-extents-state", NULL);
 
   G_OBJECT_CLASS (gtk_list_view_parent_class)->dispose (object);
 }
@@ -1043,6 +1128,7 @@ static void
 gtk_list_view_init (GtkListView *self)
 {
   g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_VERSION, GUINT_TO_POINTER (1));
+  g_object_set_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_VERSION, GUINT_TO_POINTER (1));
   g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_APPLIED,
                      GUINT_TO_POINTER (GTK_LIST_VIEW_MAX_LIST_ITEMS));
   self->item_manager = gtk_list_base_get_manager (GTK_LIST_BASE (self));
