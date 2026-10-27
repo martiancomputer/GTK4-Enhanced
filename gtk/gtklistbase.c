@@ -20,6 +20,7 @@
 #include "config.h"
 
 #include "gtklistbaseprivate.h"
+#include "gtkenhancedlistpolicyprivate.h"
 
 #include "gtkadjustment.h"
 #include "gtkbitset.h"
@@ -2063,6 +2064,7 @@ static void
 gtk_list_base_init_real (GtkListBase      *self,
                          GtkListBaseClass *g_class)
 {
+  g_object_set_data (G_OBJECT (self), GTK_ENHANCED_REPLACEMENT_ANCHOR_VERSION, GUINT_TO_POINTER (1));
   GtkListBasePrivate *priv = gtk_list_base_get_instance_private (self);
   GtkEventController *controller;
 

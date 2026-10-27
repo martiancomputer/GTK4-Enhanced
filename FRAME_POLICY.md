@@ -108,6 +108,33 @@ The cache is limited to 16,384 items (128 KiB of integer extents), owns no
 artwork, and is disabled by default. Clients must replace/invalidate their model
 when changing height-affecting presentation outside a width change.
 
+Views may additionally check `gtk4-enhanced-item-extents-groups-version == 1`
+and attach a `GBytes` as `gtk4-enhanced-item-extents-groups-v1` with
+`g_object_set_data_full()` and `g_bytes_unref` as its destroy notifier. The bytes
+must have exactly one entry per model item. Zero means ungrouped; other byte
+values declare items with equal minimum/natural heights at a given width.
+GTK learns one representative measurement per group and uses it for unseen
+members, while preserving each item's own measurement once available. This
+avoids progressively growing a scroll range as tall headings are discovered.
+Update the bytes before replacing the model contents. Model/width changes
+clear learned group sizes; invalid lengths disable grouping. Group metadata
+adds at most 16 KiB plus 2 KiB of integer estimates and retains no widgets or
+artwork. This remains an experimental private protocol with stock behavior
+when absent, rather than an installed API or an exported symbol.
+The extent-enabled path uses the same per-item measurements for tile splits,
+item allocation and pixel-to-item lookup. Applying uniform-height arithmetic
+to a heterogeneous offscreen tile would select the wrong scroll anchor even
+when the tile's total height was correct.
+
+List/grid views advertise `gtk4-enhanced-replacement-anchor-version == 1`.
+Setting `gtk4-enhanced-replacement-anchor-v1` to `GUINT_TO_POINTER(1)` keeps
+a deleted tracked item's ordinal within the replacement range, clamped to
+its new length. Upstream's default proportional fallback remains unchanged
+without this opt-in. It can otherwise map row 1 of two provisional rows to
+row 224 when 449 real items replace them. Surviving object identities still
+use GTK's existing identity-preserving path. This policy neither changes the
+scroll adjustment directly nor creates a deferred scroll/focus request.
+
 Wayland Vulkan availability belongs to the toplevel context. Popup creation
 must not replace that owner, and popup destruction must not clear a shared
 frame clock's availability. Otherwise throughput falls back until a toplevel

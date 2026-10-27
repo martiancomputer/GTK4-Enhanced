@@ -173,6 +173,11 @@ G_DEFINE_TYPE (GtkListView, gtk_list_view, GTK_TYPE_LIST_BASE)
 static GParamSpec *properties[N_PROPS] = { NULL, };
 static guint signals[LAST_SIGNAL] = { 0 };
 
+static int enhanced_extent_range (GtkListView *self, guint position, guint count);
+static gboolean enhanced_extent_locate (GtkListView *self, guint position, guint count,
+                                         int offset, int spacing, guint *item,
+                                         int *before, int *height);
+
 static GtkListTile *
 gtk_list_view_split (GtkListBase *base,
                      GtkListTile *tile,
@@ -181,6 +186,9 @@ gtk_list_view_split (GtkListBase *base,
   GtkListView *self = GTK_LIST_VIEW (base);
   GtkListTile *new_tile;
   int spacing, row_height;
+  guint position = gtk_list_tile_get_position (self->item_manager, tile);
+  int first_height = tile->area.height > 0
+    ? enhanced_extent_range (self, position, n_items) : -1;
 
   gtk_list_base_get_border_spacing (GTK_LIST_BASE (self), NULL, &spacing);
   row_height = (tile->area.height - (tile->n_items - 1) * spacing) / tile->n_items;
@@ -189,14 +197,18 @@ gtk_list_view_split (GtkListBase *base,
   gtk_list_tile_set_area_size (self->item_manager,
                                tile,
                                tile->area.width,
-                               row_height * tile->n_items + spacing * (tile->n_items - 1));
+                               (first_height >= 0 ? first_height : row_height * tile->n_items)
+                               + spacing * (tile->n_items - 1));
   gtk_list_tile_set_area (self->item_manager,
                           new_tile,
                           &(GdkRectangle) {
                             tile->area.x,
                             tile->area.y + tile->area.height + spacing,
                             tile->area.width,
-                            row_height * new_tile->n_items + spacing * (new_tile->n_items - 1)
+                            (first_height >= 0
+                              ? enhanced_extent_range (self, position + n_items, new_tile->n_items)
+                              : row_height * new_tile->n_items)
+                            + spacing * (new_tile->n_items - 1)
                           });
 
   return new_tile;
@@ -318,6 +330,14 @@ gtk_list_view_get_allocation (GtkListBase  *base,
   *area = tile->area;
   if (area->width || area->height)
     {
+      int item_height = enhanced_extent_range (self, pos, 1);
+      if (item_height >= 0 && tile->n_items > 1) {
+        int spacing;
+        gtk_list_base_get_border_spacing (base, NULL, &spacing);
+        area->y += enhanced_extent_range (self, pos - offset, offset) + offset * spacing;
+        area->height = item_height;
+        return TRUE;
+      }
       if (tile->n_items)
         area->height /= tile->n_items;
       if (offset)
@@ -412,6 +432,17 @@ gtk_list_view_get_position_from_allocation (GtkListBase           *base,
       int row_height, tile_pos, spacing;
 
       gtk_list_base_get_border_spacing (GTK_LIST_BASE (self), NULL, &spacing);
+      guint item;
+      int before, item_height;
+      if (enhanced_extent_locate (self, *pos, tile->n_items, y - tile->area.y,
+                                  spacing, &item, &before, &item_height)) {
+        *pos += item;
+        if (area) {
+          area->y = tile->area.y + before;
+          area->height = item_height;
+        }
+        return TRUE;
+      }
       row_height = (tile->area.height - (tile->n_items - 1) * spacing) / tile->n_items;
       if (y >= tile->area.y + tile->area.height)
         tile_pos = tile->n_items - 1;
@@ -574,7 +605,35 @@ enhanced_extent_state (GtkListView *self)
     g_object_set_data_full (G_OBJECT (self), "gtk4-enhanced-item-extents-state",
                             state, enhanced_extent_state_free);
   }
+  gtk_enhanced_item_extents_set_groups (&state->extents,
+    g_object_get_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_GROUPS));
   return state;
+}
+
+static int
+enhanced_extent_range (GtkListView *self, guint position, guint count)
+{
+  EnhancedExtentState *state = enhanced_extent_state (self);
+  if (!state)
+    return -1;
+  gboolean natural = gtk_list_base_get_scroll_policy (GTK_LIST_BASE (self),
+    gtk_list_base_get_orientation (GTK_LIST_BASE (self))) != GTK_SCROLL_MINIMUM;
+  return gtk_enhanced_item_extents_range (&state->extents, position, count,
+                                         state->fallback, natural);
+}
+
+static gboolean
+enhanced_extent_locate (GtkListView *self, guint position, guint count,
+                        int offset, int spacing, guint *item, int *before, int *height)
+{
+  EnhancedExtentState *state = enhanced_extent_state (self);
+  if (!state)
+    return FALSE;
+  gboolean natural = gtk_list_base_get_scroll_policy (GTK_LIST_BASE (self),
+    gtk_list_base_get_orientation (GTK_LIST_BASE (self))) != GTK_SCROLL_MINIMUM;
+  *item = gtk_enhanced_item_extents_locate (&state->extents, position, count,
+    offset, state->fallback, natural, spacing, before, height);
+  return TRUE;
 }
 
 static void
@@ -718,9 +777,12 @@ gtk_list_view_size_allocate (GtkWidget *widget,
   else
     list_width = MAX (nat, list_width);
   if (extents) {
-    if (extents->width && extents->width != list_width)
+    if (extents->width && extents->width != list_width) {
       gtk_enhanced_item_extents_reset (&extents->extents,
                                       g_list_model_get_n_items (extents->model));
+      gtk_enhanced_item_extents_set_groups (&extents->extents,
+        g_object_get_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_GROUPS));
+    }
     extents->width = list_width;
   }
 
@@ -1129,6 +1191,7 @@ gtk_list_view_init (GtkListView *self)
 {
   g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_VERSION, GUINT_TO_POINTER (1));
   g_object_set_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_VERSION, GUINT_TO_POINTER (1));
+  g_object_set_data (G_OBJECT (self), GTK_ENHANCED_ITEM_EXTENTS_GROUPS_VERSION, GUINT_TO_POINTER (1));
   g_object_set_data (G_OBJECT (self), GTK_ENHANCED_LIST_POOL_APPLIED,
                      GUINT_TO_POINTER (GTK_LIST_VIEW_MAX_LIST_ITEMS));
   self->item_manager = gtk_list_base_get_manager (GTK_LIST_BASE (self));

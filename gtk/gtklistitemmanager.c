@@ -20,6 +20,7 @@
 #include "config.h"
 
 #include "gtklistitemmanagerprivate.h"
+#include "gtkenhancedlistpolicyprivate.h"
 
 #include "gtklistitembaseprivate.h"
 #include "gtklistitemwidgetprivate.h"
@@ -1566,7 +1567,14 @@ gtk_list_item_manager_model_items_changed_cb (GListModel         *model,
                * Put the widget back and then guess a good new position */
               gtk_list_item_change_release (&change, widget);
 
-              tracker->position = position + (tracker->position - position) * added / removed;
+              if (GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self->widget),
+                    GTK_ENHANCED_REPLACEMENT_ANCHOR)) == 1)
+                /* A small provisional model expanding into a real collection
+                 * must not scale its old ordinal into the middle of the new
+                 * model. Surviving objects still take the identity path below. */
+                tracker->position = gtk_enhanced_replacement_anchor (tracker->position, position, added);
+              else
+                tracker->position = position + (tracker->position - position) * added / removed;
               if (tracker->position >= n_items)
                 {
                   if (n_items == 0)

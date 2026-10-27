@@ -20,6 +20,7 @@
 #include <gtk/gtk.h>
 #include "gtk/gtklistitemmanagerprivate.h"
 #include "gtk/gtklistbaseprivate.h"
+#include "gtk/gtkenhancedlistpolicyprivate.h"
 
 static GListModel *
 create_source_model (guint min_size, guint max_size)
@@ -553,6 +554,41 @@ test_exhaustive (void)
   gtk_window_destroy (GTK_WINDOW (widget));
 }
 
+static void
+test_replacement_anchor (gconstpointer data)
+{
+  gboolean stable = GPOINTER_TO_UINT (data);
+  GtkWidget *widget = gtk_window_new ();
+  GtkListItemManager *items = gtk_list_item_manager_new (widget,
+    split_simple, create_simple_item, prepare_simple, create_simple_header);
+  g_object_set_data_full (G_OBJECT (widget), "the-items", items, g_object_unref);
+  if (stable)
+    g_object_set_data (G_OBJECT (widget), GTK_ENHANCED_REPLACEMENT_ANCHOR, GUINT_TO_POINTER (1));
+  g_autoptr(GListStore) store = g_list_store_new (G_TYPE_OBJECT);
+  for (guint i = 0; i < 2; i++) {
+    g_autoptr(GObject) item = g_object_new (G_TYPE_OBJECT, NULL);
+    g_list_store_append (store, item);
+  }
+  g_autoptr(GtkNoSelection) selection = gtk_no_selection_new (G_LIST_MODEL (g_object_ref (store)));
+  gtk_list_item_manager_set_model (items, GTK_SELECTION_MODEL (selection));
+  GtkListItemTracker *tracker = gtk_list_item_tracker_new (items);
+  gtk_list_item_tracker_set_position (items, tracker, 1, 0, 0);
+  g_autoptr(GPtrArray) next = g_ptr_array_new_with_free_func (g_object_unref);
+  for (guint i = 0; i < 449; i++) g_ptr_array_add (next, g_object_new (G_TYPE_OBJECT, NULL));
+  g_list_store_splice (store, 0, 2, next->pdata, next->len);
+  g_assert_cmpuint (gtk_list_item_tracker_get_position (items, tracker), ==, stable ? 1 : 224);
+  /* An item that survives replacement still wins over either fallback. */
+  gtk_list_item_tracker_set_position (items, tracker, 200, 0, 0);
+  g_autoptr(GObject) survivor = g_list_model_get_item (G_LIST_MODEL (store), 200);
+  g_ptr_array_set_size (next, 0);
+  for (guint i = 0; i < 449; i++)
+    g_ptr_array_add (next, i == 300 ? g_object_ref (survivor) : g_object_new (G_TYPE_OBJECT, NULL));
+  g_list_store_splice (store, 0, 449, next->pdata, next->len);
+  g_assert_cmpuint (gtk_list_item_tracker_get_position (items, tracker), ==, 300);
+  gtk_list_item_tracker_free (items, tracker);
+  gtk_window_destroy (GTK_WINDOW (widget));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -561,6 +597,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/listitemmanager/create", test_create);
   g_test_add_func ("/listitemmanager/create_with_items", test_create_with_items);
   g_test_add_func ("/listitemmanager/exhaustive", test_exhaustive);
+  g_test_add_data_func ("/listitemmanager/replacement-default", GUINT_TO_POINTER (0), test_replacement_anchor);
+  g_test_add_data_func ("/listitemmanager/replacement-stable", GUINT_TO_POINTER (1), test_replacement_anchor);
 
   return g_test_run ();
 }
