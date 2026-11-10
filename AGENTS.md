@@ -232,3 +232,5 @@ At the end of a task, report in this order:
 5. **Remaining risks:** known regressions, upstream drift, and recommended next steps.
 
 **Default decision rule:** when visual features or performance conflict with compatibility, correctness, accessibility or safety, preserve the latter and propose an explicit experimental opt-in. Never silently change how stock GTK applications render to reach an FPS or aesthetics target.
+
+- **Optional AI model identification (non-blocking):** When an AI agent creates a commit, it is encouraged to identify its actual model in the commit message (for example, `Model: GPT-6.1`, `Model: Astra 6`, or `Model: Opus 5.5`). If the model name is unavailable, omit it; this guideline must never delay or prevent a commit.
